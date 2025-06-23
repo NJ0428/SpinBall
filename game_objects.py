@@ -2,6 +2,7 @@ import pygame
 import math
 import random
 from constants import *
+from language import get_text, set_language, get_current_language, language_manager
 
 
 class Ball:
@@ -212,19 +213,16 @@ class Game:
             self.title_font = pygame.font.Font(None, TITLE_FONT_SIZE)
             self.menu_font = pygame.font.Font(None, MENU_FONT_SIZE)
         
-        self.reset_game()
-        
-        # 게임 상태 관리
-        self.game_state = GAME_STATE_TITLE
-        self.selected_menu = 0  # 선택된 메뉴 항목
-        self.menu_items = ["게임시작", "게임 설정", "랭킹", "게임 종료"]
-        
         # 설정 값들
         self.settings = {
             "ball_speed": 11,
             "sound_enabled": True,
-            "difficulty": "보통"
+            "difficulty": "보통",
+            "language": "ko"
         }
+        
+        # 언어 설정 초기화
+        set_language(self.settings["language"])
         
         # 랭킹 데이터 (임시)
         self.rankings = [
@@ -234,6 +232,53 @@ class Game:
             {"name": "플레이어4", "score": 800},
             {"name": "플레이어5", "score": 600}
         ]
+        
+        self.reset_game()
+        
+        # 게임 상태 관리
+        self.game_state = GAME_STATE_TITLE
+        self.selected_menu = 0  # 선택된 메뉴 항목
+        self.settings_menu_selected = 0  # 설정 메뉴에서 선택된 항목
+        
+    def get_menu_items(self):
+        """현재 언어에 따른 메뉴 항목들 반환"""
+        return [
+            get_text('menu_start'),
+            get_text('menu_settings'), 
+            get_text('menu_ranking'),
+            get_text('menu_quit')
+        ]
+        
+    def change_setting(self, increase=True):
+        """설정 값 변경"""
+        if self.settings_menu_selected == 0:  # 공 속도
+            if increase:
+                self.settings["ball_speed"] = min(20, self.settings["ball_speed"] + 1)
+            else:
+                self.settings["ball_speed"] = max(5, self.settings["ball_speed"] - 1)
+        elif self.settings_menu_selected == 1:  # 사운드
+            self.settings["sound_enabled"] = not self.settings["sound_enabled"]
+        elif self.settings_menu_selected == 2:  # 난이도
+            difficulties = [get_text('easy'), get_text('normal'), get_text('hard')]
+            current_idx = 0
+            if self.settings["difficulty"] in difficulties:
+                current_idx = difficulties.index(self.settings["difficulty"])
+            if increase:
+                current_idx = (current_idx + 1) % len(difficulties)
+            else:
+                current_idx = (current_idx - 1) % len(difficulties)
+            self.settings["difficulty"] = difficulties[current_idx]
+        elif self.settings_menu_selected == 3:  # 언어
+            languages = language_manager.get_supported_languages()
+            current_idx = 0
+            if self.settings["language"] in languages:
+                current_idx = languages.index(self.settings["language"])
+            if increase:
+                current_idx = (current_idx + 1) % len(languages)
+            else:
+                current_idx = (current_idx - 1) % len(languages)
+            self.settings["language"] = languages[current_idx]
+            set_language(self.settings["language"])
         
     def reset_game(self):
         self.balls = []
@@ -294,6 +339,12 @@ class Game:
                 elif self.game_state == GAME_STATE_SETTINGS:
                     if event.key == pygame.K_ESCAPE:
                         self.game_state = GAME_STATE_TITLE
+                    elif event.key == pygame.K_UP:
+                        self.settings_menu_selected = (self.settings_menu_selected - 1) % 4
+                    elif event.key == pygame.K_DOWN:
+                        self.settings_menu_selected = (self.settings_menu_selected + 1) % 4
+                    elif event.key == pygame.K_LEFT or event.key == pygame.K_RIGHT:
+                        self.change_setting(event.key == pygame.K_RIGHT)
                 elif self.game_state == GAME_STATE_RANKING:
                     if event.key == pygame.K_ESCAPE:
                         self.game_state = GAME_STATE_TITLE
@@ -314,10 +365,11 @@ class Game:
         return True
         
     def handle_title_input(self, key):
+        menu_items = self.get_menu_items()
         if key == pygame.K_UP:
-            self.selected_menu = (self.selected_menu - 1) % len(self.menu_items)
+            self.selected_menu = (self.selected_menu - 1) % len(menu_items)
         elif key == pygame.K_DOWN:
-            self.selected_menu = (self.selected_menu + 1) % len(self.menu_items)
+            self.selected_menu = (self.selected_menu + 1) % len(menu_items)
         elif key == pygame.K_RETURN or key == pygame.K_SPACE:
             if self.selected_menu == 0:  # 게임시작
                 self.game_state = GAME_STATE_GAME
@@ -477,14 +529,14 @@ class Game:
         pygame.draw.line(self.screen, GRAY, (0, TOP_UI_HEIGHT), (SCREEN_WIDTH, TOP_UI_HEIGHT), 2)
         
         # 점수 표시
-        score_text = self.small_font.render(f"현재점수: {self.score}", True, UI_TEXT_COLOR)
-        high_score_text = self.small_font.render(f"최고기록: {self.high_score}", True, UI_TEXT_COLOR)
+        score_text = self.small_font.render(f"{get_text('score')}: {self.score}", True, UI_TEXT_COLOR)
+        high_score_text = self.small_font.render(f"Best: {self.high_score}", True, UI_TEXT_COLOR)
         
         self.screen.blit(high_score_text, (20, 15))
         self.screen.blit(score_text, (20, 40))
         
         # 라운드 표시
-        round_text = self.small_font.render(f"라운드: {self.round_num}", True, UI_TEXT_COLOR)
+        round_text = self.small_font.render(f"{get_text('round')}: {self.round_num}", True, UI_TEXT_COLOR)
         self.screen.blit(round_text, (SCREEN_WIDTH - 120, 15))
         
         # 하단 UI 배경
@@ -543,7 +595,8 @@ class Game:
         self.screen.blit(title_text, title_rect)
         
         # 메뉴 항목들
-        for i, item in enumerate(self.menu_items):
+        menu_items = self.get_menu_items()
+        for i, item in enumerate(menu_items):
             y = MENU_START_Y + i * MENU_ITEM_HEIGHT
             
             # 선택된 메뉴 하이라이트
@@ -601,9 +654,9 @@ class Game:
             overlay.fill(BLACK)
             self.screen.blit(overlay, (0, 0))
             
-            game_over_text = self.large_font.render("게임 오버!", True, WHITE)
-            score_text = self.font.render(f"점수: {self.score}", True, WHITE)
-            restart_text = self.small_font.render("R키를 눌러 재시작, ESC 타이틀로", True, LIGHT_GRAY)
+            game_over_text = self.large_font.render(get_text('game_over'), True, WHITE)
+            score_text = self.font.render(f"{get_text('score')}: {self.score}", True, WHITE)
+            restart_text = self.small_font.render(get_text('restart_hint'), True, LIGHT_GRAY)
             
             game_over_rect = game_over_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 40))
             score_rect = score_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2))
@@ -630,19 +683,29 @@ class Game:
                 title_font = self.large_font
         except:
             title_font = self.large_font
-        title_text = title_font.render("게임 설정", True, WHITE)
-        title_rect = title_text.get_rect(center=(SCREEN_WIDTH//2, 100))
+        title_text = title_font.render(get_text('settings_title'), True, WHITE)
+        title_rect = title_text.get_rect(center=(SCREEN_WIDTH//2, 80))
         self.screen.blit(title_text, title_rect)
         
         # 설정 항목들 (한글 지원)
         settings_text = [
-            f"공 속도: {self.settings['ball_speed']}",
-            f"사운드: {'켜짐' if self.settings['sound_enabled'] else '꺼짐'}",
-            f"난이도: {self.settings['difficulty']}"
+            f"{get_text('ball_speed')}: {self.settings['ball_speed']}",
+            f"{get_text('sound')}: {get_text('sound_on') if self.settings['sound_enabled'] else get_text('sound_off')}",
+            f"{get_text('difficulty')}: {self.settings['difficulty']}",
+            f"{get_text('language')}: {language_manager.get_language_name(self.settings['language'])}"
         ]
         
         for i, text in enumerate(settings_text):
-            y = 200 + i * 50
+            y = 150 + i * 60
+            
+            # 선택된 항목 하이라이트
+            if i == self.settings_menu_selected:
+                highlight_rect = pygame.Rect(50, y - 25, SCREEN_WIDTH - 100, 50)
+                pygame.draw.rect(self.screen, (50, 50, 80), highlight_rect, border_radius=10)
+                text_color = YELLOW
+            else:
+                text_color = WHITE
+            
             try:
                 if self.current_font_path:
                     setting_font = pygame.font.Font(self.current_font_path, 24)
@@ -650,21 +713,29 @@ class Game:
                     setting_font = self.font
             except:
                 setting_font = self.font
-            setting_text = setting_font.render(text, True, WHITE)
+            setting_text = setting_font.render(text, True, text_color)
             setting_rect = setting_text.get_rect(center=(SCREEN_WIDTH//2, y))
             self.screen.blit(setting_text, setting_rect)
         
-        # 돌아가기 안내 (한글 지원)
+        # 조작 안내 (한글 지원)
         try:
             if self.current_font_path:
-                back_font = pygame.font.Font(self.current_font_path, 20)
+                help_font = pygame.font.Font(self.current_font_path, 18)
             else:
-                back_font = self.small_font
+                help_font = self.small_font
         except:
-            back_font = self.small_font
-        back_text = back_font.render("ESC: 타이틀로 돌아가기", True, LIGHT_GRAY)
-        back_rect = back_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 50))
-        self.screen.blit(back_text, back_rect)
+            help_font = self.small_font
+        
+        help_texts = [
+            "↑↓: 항목 선택, ←→: 값 변경",
+            get_text('back_to_title')
+        ]
+        
+        for i, help_text in enumerate(help_texts):
+            y = SCREEN_HEIGHT - 80 + i * 25
+            text_surface = help_font.render(help_text, True, LIGHT_GRAY)
+            text_rect = text_surface.get_rect(center=(SCREEN_WIDTH//2, y))
+            self.screen.blit(text_surface, text_rect)
         
     def draw_ranking(self):
         self.screen.fill(DARK_GRAY)
@@ -677,7 +748,7 @@ class Game:
                 title_font = self.large_font
         except:
             title_font = self.large_font
-        title_text = title_font.render("랭킹", True, WHITE)
+        title_text = title_font.render(get_text('ranking_title'), True, WHITE)
         title_rect = title_text.get_rect(center=(SCREEN_WIDTH//2, 100))
         self.screen.blit(title_text, title_rect)
         
@@ -703,7 +774,7 @@ class Game:
                 back_font = self.small_font
         except:
             back_font = self.small_font
-        back_text = back_font.render("ESC: 타이틀로 돌아가기", True, LIGHT_GRAY)
+        back_text = back_font.render(get_text('back_to_title'), True, LIGHT_GRAY)
         back_rect = back_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 50))
         self.screen.blit(back_text, back_rect)
         

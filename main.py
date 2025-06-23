@@ -12,15 +12,16 @@ Python과 Pygame을 사용한 숫자 블록 브레이커 게임
 import pygame
 import os
 from game_objects import Game
+from language import get_text
 
 def main():
-    print("볼즈 게임을 시작합니다!")
-    print("조작법:")
-    print("- 마우스로 발사 각도를 조정하세요")
-    print("- 마우스 클릭으로 공을 발사하세요")
-    print("- 블록의 숫자만큼 공이 맞아야 블록이 사라집니다")
-    print("- 블록이 바닥에 닿으면 게임 오버!")
-    print("- 라운드가 지날수록 공의 개수가 늘어납니다")
+    print("SpinBall Game Starting...")
+    print(get_text('controls_title') + ":")
+    print("- " + get_text('control_aim'))
+    print("- " + get_text('control_shoot'))
+    print("- " + get_text('control_blocks'))
+    print("- " + get_text('control_gameover'))
+    print("- " + get_text('control_rounds'))
     
     # pygame 초기화
     pygame.init()
