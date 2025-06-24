@@ -358,8 +358,36 @@ class Game:
                         if dy > 0:
                             angle = math.degrees(math.atan2(dy, dx))
                             self.launch_angle = max(MIN_LAUNCH_ANGLE, min(MAX_LAUNCH_ANGLE, angle))
+                elif self.game_state == GAME_STATE_TITLE:
+                    # 타이틀 화면에서 마우스 위치에 따라 메뉴 선택
+                    mouse_x, mouse_y = event.pos
+                    menu_items = self.get_menu_items()
+                    for i in range(len(menu_items)):
+                        y = MENU_START_Y + i * MENU_ITEM_HEIGHT
+                        if y - 20 <= mouse_y <= y + 20:
+                            self.selected_menu = i
+                            break
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                if self.game_state == GAME_STATE_GAME and not self.game_over and not self.round_in_progress:
+                if self.game_state == GAME_STATE_TITLE:
+                    # 타이틀 화면에서 마우스 클릭으로 메뉴 선택
+                    mouse_x, mouse_y = event.pos
+                    menu_items = self.get_menu_items()
+                    for i in range(len(menu_items)):
+                        y = MENU_START_Y + i * MENU_ITEM_HEIGHT
+                        if y - 20 <= mouse_y <= y + 20:
+                            self.selected_menu = i
+                            # 선택된 메뉴 실행
+                            if self.selected_menu == 0:  # 게임시작
+                                self.game_state = GAME_STATE_GAME
+                                self.reset_game()
+                            elif self.selected_menu == 1:  # 게임 설정
+                                self.game_state = GAME_STATE_SETTINGS
+                            elif self.selected_menu == 2:  # 랭킹
+                                self.game_state = GAME_STATE_RANKING
+                            elif self.selected_menu == 3:  # 게임 종료
+                                return False
+                            break
+                elif self.game_state == GAME_STATE_GAME and not self.game_over and not self.round_in_progress:
                     self.start_launch()
                     
         return True
@@ -601,11 +629,12 @@ class Game:
             
             # 선택된 메뉴 하이라이트
             if i == self.selected_menu:
-                # 하이라이트 배경
-                highlight_rect = pygame.Rect(50, y - 20, SCREEN_WIDTH - 100, 40)
-                pygame.draw.rect(self.screen, CYAN, highlight_rect, border_radius=20)
+                # 하이라이트 배경 (더 부드러운 애니메이션 효과)
+                highlight_rect = pygame.Rect(40, y - 25, SCREEN_WIDTH - 80, 50)
+                pygame.draw.rect(self.screen, CYAN, highlight_rect, border_radius=25)
+                pygame.draw.rect(self.screen, WHITE, highlight_rect, 3, border_radius=25)
                 text_color = BLACK
-                font_size_add = 4
+                font_size_add = 6
             else:
                 text_color = WHITE
                 font_size_add = 0
@@ -623,7 +652,7 @@ class Game:
             self.screen.blit(menu_text, menu_rect)
         
         # 조작법 안내
-        control_text = self.small_font.render("↑↓ 선택, Enter 확인", True, LIGHT_GRAY)
+        control_text = self.small_font.render("↑↓ 선택, Enter 확인 또는 마우스 클릭", True, LIGHT_GRAY)
         control_rect = control_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 50))
         self.screen.blit(control_text, control_rect)
         
