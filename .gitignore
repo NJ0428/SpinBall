@@ -1,0 +1,25 @@
+# Python 캐시 파일
+__pycache__/
+*.py[cod]
+*$py.class
+
+# SQLite 데이터베이스 파일 (사용자별 데이터)
+*.db
+
+# PyInstaller
+*.manifest
+*.spec
+
+# 환경 변수 파일
+.env
+
+# IDE 설정 파일
+.vscode/
+.idea/
+
+# 로그 파일
+*.log
+
+# 임시 파일
+*.tmp
+*.temp 

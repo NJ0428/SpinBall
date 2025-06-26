@@ -3,6 +3,7 @@ import math
 import random
 from constants import *
 from language import get_text, set_language, get_current_language, language_manager
+from database import db_manager
 
 
 class Ball:
@@ -101,6 +102,10 @@ class Block:
                 self.active = False
                 return True  # 블록이 파괴됨
         return False
+    
+    def get_score_value(self):
+        """블록이 주는 점수 값 (체력에 비례)"""
+        return self.max_health * 10
         
     def move_down(self):
         self.y += BLOCK_SIZE + BLOCK_MARGIN
@@ -224,14 +229,14 @@ class Game:
         # 언어 설정 초기화
         set_language(self.settings["language"])
         
-        # 랭킹 데이터 (임시)
-        self.rankings = [
-            {"name": "플레이어1", "score": 1500},
-            {"name": "플레이어2", "score": 1200},
-            {"name": "플레이어3", "score": 1000},
-            {"name": "플레이어4", "score": 800},
-            {"name": "플레이어5", "score": 600}
-        ]
+        # 플레이어 이름 입력 상태
+        self.entering_name = False
+        self.player_name = ""
+        self.input_active = False
+        
+        # 게임 오버 후 이름 입력 관련
+        self.name_entered = False
+        self.score_saved = False
         
         self.reset_game()
         
@@ -298,8 +303,38 @@ class Game:
         self.bonus_balls_collected = 0  # 이번 라운드에서 수집한 보너스 볼 개수
         self.last_ball_x = SCREEN_WIDTH // 2  # 마지막 공이 떨어진 X 위치
         
+        # 게임 오버 후 이름 입력 관련 초기화
+        self.entering_name = False
+        self.player_name = ""
+        self.input_active = False
+        self.name_entered = False
+        self.score_saved = False
+        
         # 첫 번째 라운드의 블록 생성
         self.generate_blocks()
+    
+    def add_score(self, points):
+        """점수 추가"""
+        self.score += points
+    
+    def save_game_score(self):
+        """게임 점수를 데이터베이스에 저장"""
+        if self.player_name.strip() and not self.score_saved:
+            success = db_manager.save_score(
+                self.player_name.strip(),
+                self.score,
+                self.round_num,
+                self.ball_count
+            )
+            if success:
+                self.score_saved = True
+                print(f"점수 저장 완료: {self.player_name} - {self.score}점")
+            return success
+        return False
+    
+    def get_rankings(self, limit=10):
+        """랭킹 조회"""
+        return db_manager.get_top_scores(limit)
         
     def generate_blocks(self):
         # 새로운 블록 라인을 맨 위에 추가
@@ -332,9 +367,26 @@ class Game:
                 if self.game_state == GAME_STATE_TITLE:
                     self.handle_title_input(event.key)
                 elif self.game_state == GAME_STATE_GAME:
-                    if event.key == pygame.K_r and self.game_over:
+                    if self.game_over and not self.name_entered and not self.score_saved:
+                        # 게임 오버 시 이름 입력 처리
+                        if event.key == pygame.K_RETURN:
+                            if self.player_name.strip():
+                                self.save_game_score()
+                                self.name_entered = True
+                            else:
+                                self.name_entered = True  # 빈 이름으로도 진행 가능
+                        elif event.key == pygame.K_ESCAPE:
+                            self.name_entered = True  # 이름 입력 건너뛰기
+                        elif event.key == pygame.K_BACKSPACE:
+                            self.player_name = self.player_name[:-1]
+                        else:
+                            # 일반 문자 입력 (길이 제한)
+                            if len(self.player_name) < 10 and event.unicode.isprintable():
+                                self.player_name += event.unicode
+                        self.input_active = True
+                    elif event.key == pygame.K_r and self.game_over:
                         self.reset_game()
-                    elif event.key == pygame.K_ESCAPE:
+                    elif event.key == pygame.K_ESCAPE and not self.game_over:
                         self.game_state = GAME_STATE_TITLE
                 elif self.game_state == GAME_STATE_SETTINGS:
                     if event.key == pygame.K_ESCAPE:
@@ -459,7 +511,8 @@ class Game:
             for block in self.blocks[:]:  # 복사본을 사용하여 안전한 반복
                 if ball.bounce_block(block):
                     if block.hit():
-                        self.score += 1
+                        # 블록이 파괴되면 점수 추가
+                        self.add_score(block.get_score_value())
                         
             # 보너스 볼 수집
             for bonus in self.bonus_balls:
@@ -497,6 +550,8 @@ class Game:
                 self.game_over = True
                 if self.score > self.high_score:
                     self.high_score = self.score
+                # 게임 오버 시 이름 입력 상태 활성화
+                self.input_active = True
                 break
                 
         for bonus in self.bonus_balls:
@@ -504,6 +559,8 @@ class Game:
                 self.game_over = True
                 if self.score > self.high_score:
                     self.high_score = self.score
+                # 게임 오버 시 이름 입력 상태 활성화
+                self.input_active = True
                 break
                 
     def next_round(self):
@@ -685,15 +742,50 @@ class Game:
             
             game_over_text = self.large_font.render(get_text('game_over'), True, WHITE)
             score_text = self.font.render(f"{get_text('score')}: {self.score}", True, WHITE)
-            restart_text = self.small_font.render(get_text('restart_hint'), True, LIGHT_GRAY)
             
-            game_over_rect = game_over_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 40))
-            score_rect = score_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2))
-            restart_rect = restart_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 40))
+            game_over_rect = game_over_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 80))
+            score_rect = score_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 40))
             
             self.screen.blit(game_over_text, game_over_rect)
             self.screen.blit(score_text, score_rect)
-            self.screen.blit(restart_text, restart_rect)
+            
+            # 이름 입력 또는 저장 완료 상태에 따른 메시지
+            if not self.name_entered and not self.score_saved:
+                name_prompt_text = self.font.render("이름을 입력하세요:", True, WHITE)
+                name_prompt_rect = name_prompt_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2))
+                self.screen.blit(name_prompt_text, name_prompt_rect)
+                
+                # 입력 박스
+                input_box = pygame.Rect(SCREEN_WIDTH//2 - 100, SCREEN_HEIGHT//2 + 25, 200, 30)
+                pygame.draw.rect(self.screen, WHITE, input_box)
+                pygame.draw.rect(self.screen, BLACK, input_box, 2)
+                
+                # 입력된 텍스트 표시
+                name_text = self.font.render(self.player_name, True, BLACK)
+                name_text_rect = name_text.get_rect(center=input_box.center)
+                self.screen.blit(name_text, name_text_rect)
+                
+                # 커서 표시 (깜빡임 효과)
+                if self.input_active and (pygame.time.get_ticks() // 500) % 2:
+                    cursor_x = name_text_rect.right + 2
+                    pygame.draw.line(self.screen, BLACK, (cursor_x, input_box.y + 5), (cursor_x, input_box.bottom - 5), 2)
+                
+                confirm_text = self.small_font.render("Enter: 저장, ESC: 건너뛰기", True, LIGHT_GRAY)
+                confirm_rect = confirm_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 70))
+                self.screen.blit(confirm_text, confirm_rect)
+                
+            elif self.score_saved:
+                saved_text = self.font.render("점수가 저장되었습니다!", True, GREEN)
+                saved_rect = saved_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2))
+                self.screen.blit(saved_text, saved_rect)
+                
+                restart_text = self.small_font.render(get_text('restart_hint'), True, LIGHT_GRAY)
+                restart_rect = restart_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 40))
+                self.screen.blit(restart_text, restart_rect)
+            else:
+                restart_text = self.small_font.render(get_text('restart_hint'), True, LIGHT_GRAY)
+                restart_rect = restart_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 40))
+                self.screen.blit(restart_text, restart_rect)
         
         # 조작법 (첫 라운드에만 표시)
         elif self.round_num == 1 and not self.round_in_progress:
@@ -778,22 +870,96 @@ class Game:
         except:
             title_font = self.large_font
         title_text = title_font.render(get_text('ranking_title'), True, WHITE)
-        title_rect = title_text.get_rect(center=(SCREEN_WIDTH//2, 100))
+        title_rect = title_text.get_rect(center=(SCREEN_WIDTH//2, 80))
         self.screen.blit(title_text, title_rect)
         
-        # 랭킹 목록 (한글 지원)
-        for i, ranking in enumerate(self.rankings):
-            y = 180 + i * 40
+        # 데이터베이스에서 랭킹 가져오기
+        rankings = self.get_rankings(10)
+        
+        if rankings:
+            # 헤더
             try:
                 if self.current_font_path:
-                    rank_font = pygame.font.Font(self.current_font_path, 24)
+                    header_font = pygame.font.Font(self.current_font_path, 18)
                 else:
-                    rank_font = self.font
+                    header_font = self.small_font
             except:
-                rank_font = self.font
-            rank_text = rank_font.render(f"{i+1}. {ranking['name']}: {ranking['score']}", True, WHITE)
-            rank_rect = rank_text.get_rect(center=(SCREEN_WIDTH//2, y))
-            self.screen.blit(rank_text, rank_rect)
+                header_font = self.small_font
+            
+            header_text = header_font.render("순위  플레이어    점수    라운드", True, LIGHT_GRAY)
+            header_rect = header_text.get_rect(center=(SCREEN_WIDTH//2, 130))
+            self.screen.blit(header_text, header_rect)
+            
+            # 랭킹 목록 (한글 지원)
+            for i, (name, score, round_reached, balls_count, play_date) in enumerate(rankings):
+                y = 160 + i * 35
+                
+                try:
+                    if self.current_font_path:
+                        rank_font = pygame.font.Font(self.current_font_path, 20)
+                    else:
+                        rank_font = self.small_font
+                except:
+                    rank_font = self.small_font
+                
+                # 순위별 색상
+                if i == 0:
+                    color = (255, 215, 0)  # 금색
+                elif i == 1:
+                    color = (192, 192, 192)  # 은색
+                elif i == 2:
+                    color = (205, 127, 50)  # 동색
+                else:
+                    color = WHITE
+                
+                rank_text = rank_font.render(f"{i+1:2d}.  {name[:8]:<8}  {score:>6}  {round_reached:>3}R", True, color)
+                rank_rect = rank_text.get_rect(center=(SCREEN_WIDTH//2, y))
+                self.screen.blit(rank_text, rank_rect)
+                
+                # 날짜 표시 (더 작은 폰트)
+                try:
+                    if self.current_font_path:
+                        date_font = pygame.font.Font(self.current_font_path, 14)
+                    else:
+                        date_font = pygame.font.Font(None, 16)
+                except:
+                    date_font = pygame.font.Font(None, 16)
+                
+                date_str = play_date.split()[0] if play_date else ""  # 날짜만 표시
+                date_text = date_font.render(date_str, True, GRAY)
+                date_rect = date_text.get_rect(center=(SCREEN_WIDTH//2, y + 15))
+                self.screen.blit(date_text, date_rect)
+        else:
+            # 랭킹이 없을 때
+            try:
+                if self.current_font_path:
+                    no_rank_font = pygame.font.Font(self.current_font_path, 24)
+                else:
+                    no_rank_font = self.font
+            except:
+                no_rank_font = self.font
+            
+            no_rank_text = no_rank_font.render("아직 저장된 점수가 없습니다", True, LIGHT_GRAY)
+            no_rank_rect = no_rank_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2))
+            self.screen.blit(no_rank_text, no_rank_rect)
+        
+        # 통계 정보 표시
+        stats = db_manager.get_database_stats()
+        if stats['total_games'] > 0:
+            try:
+                if self.current_font_path:
+                    stats_font = pygame.font.Font(self.current_font_path, 16)
+                else:
+                    stats_font = pygame.font.Font(None, 18)
+            except:
+                stats_font = pygame.font.Font(None, 18)
+            
+            stats_text = stats_font.render(
+                f"총 게임: {stats['total_games']}  평균 점수: {stats['average_score']}", 
+                True, LIGHT_GRAY
+            )
+            stats_rect = stats_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 80))
+            self.screen.blit(stats_text, stats_rect)
         
         # 돌아가기 안내 (한글 지원)
         try:
@@ -804,7 +970,7 @@ class Game:
         except:
             back_font = self.small_font
         back_text = back_font.render(get_text('back_to_title'), True, LIGHT_GRAY)
-        back_rect = back_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 50))
+        back_rect = back_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 30))
         self.screen.blit(back_text, back_rect)
         
     def run(self):
