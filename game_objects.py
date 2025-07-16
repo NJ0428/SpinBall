@@ -7,38 +7,37 @@ from database import db_manager
 
 
 class Ball:
-    def __init__(self, x, y, dx, dy, is_super=False):
+    def __init__(self, x, y, dx, dy):
         self.x = x
         self.y = y
         self.dx = dx
         self.dy = dy
         self.radius = BALL_RADIUS
         self.active = True
-        self.is_super = is_super
         
     def move(self):
         if not self.active:
             return
-            
+        
         self.x += self.dx
         self.y += self.dy
         
         # 좌우 벽 충돌
         if self.x - self.radius <= 0 or self.x + self.radius >= SCREEN_WIDTH:
             self.dx = -self.dx
-            
+        
         # 상단 벽 충돌
         if self.y - self.radius <= TOP_UI_HEIGHT:
             self.dy = abs(self.dy)
-            
+        
         # 바닥에 닿으면 비활성화
         if self.y + self.radius >= SCREEN_HEIGHT - BOTTOM_UI_HEIGHT:
             self.active = False
-            
+    
     def bounce_block(self, block):
         if not self.active or not block.active:
             return False
-            
+        
         # 블록과 충돌 검사
         if (self.x + self.radius >= block.x and 
             self.x - self.radius <= block.x + BLOCK_SIZE and
@@ -67,40 +66,24 @@ class Ball:
                     self.y = block.y + BLOCK_SIZE + self.radius + 1
                 else:
                     self.y = block.y - self.radius - 1
-                
+            
             return True
         return False
-        
+    
     def collect_bonus(self, bonus):
         if not self.active or not bonus.active:
             return False
-            
+        
         # 보너스와 충돌 검사
         distance = math.sqrt((self.x - bonus.x)**2 + (self.y - bonus.y)**2)
         if distance <= self.radius + bonus.radius:
             return True
         return False
     
-    def collect_super_ball(self, super_item):
-        if not self.active or not super_item.active:
-            return False
-            
-        # 슈퍼볼 아이템과 충돌 검사
-        distance = math.sqrt((self.x - super_item.x)**2 + (self.y - super_item.y)**2)
-        if distance <= self.radius + super_item.radius:
-            return True
-        return False
-        
     def draw(self, screen):
         if self.active:
-            # 슈퍼볼일 때는 노랑색, 일반볼일 때는 청록색
-            if self.is_super:
-                color = SUPER_BALL_COLOR
-                outline_color = BLACK
-            else:
-                color = CYAN
-                outline_color = WHITE
-                
+            color = CYAN
+            outline_color = WHITE
             pygame.draw.circle(screen, color, (int(self.x), int(self.y)), self.radius)
             pygame.draw.circle(screen, outline_color, (int(self.x), int(self.y)), self.radius, 2)
 
@@ -175,35 +158,6 @@ class BonusBall:
             # "+" 표시
             font = pygame.font.Font(None, 20)
             text = font.render("+1", True, WHITE)
-            text_rect = text.get_rect(center=(int(self.x), int(self.y)))
-            screen.blit(text, text_rect)
-
-
-class SuperBallItem:
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
-        self.radius = SUPER_BALL_RADIUS
-        self.active = True
-        
-    def move_down(self):
-        """블록과 함께 아래로 이동"""
-        self.y += BLOCK_SIZE + BLOCK_MARGIN
-                
-    def draw(self, screen):
-        if self.active:
-            # 노랑색 원 그리기 (반짝이는 효과)
-            pulse = abs(math.sin(pygame.time.get_ticks() * 0.005)) * 30
-            color = (min(255, SUPER_BALL_COLOR[0] + int(pulse)), 
-                    min(255, SUPER_BALL_COLOR[1] + int(pulse)), 
-                    SUPER_BALL_COLOR[2])
-            
-            pygame.draw.circle(screen, color, (int(self.x), int(self.y)), self.radius)
-            pygame.draw.circle(screen, WHITE, (int(self.x), int(self.y)), self.radius, 2)
-            
-            # "S" 표시
-            font = pygame.font.Font(None, 24)
-            text = font.render("S", True, BLACK)
             text_rect = text.get_rect(center=(int(self.x), int(self.y)))
             screen.blit(text, text_rect)
 
@@ -336,7 +290,6 @@ class Game:
         self.balls = []
         self.blocks = []
         self.bonus_balls = []
-        self.super_ball_items = []  # 슈퍼볼 아이템 목록
         self.round_num = 1
         self.ball_count = BALL_COUNT_START
         self.score = 0
@@ -347,23 +300,15 @@ class Game:
         self.launch_start_time = 0
         self.balls_launched = 0
         self.launch_x = SCREEN_WIDTH // 2
-        self.round_in_progress = False  # 현재 라운드가 진행 중인지
-        self.bonus_balls_collected = 0  # 이번 라운드에서 수집한 보너스 볼 개수
-        self.last_ball_x = SCREEN_WIDTH // 2  # 마지막 공이 떨어진 X 위치
-        
-        # 슈퍼볼 시스템
-        self.super_ball_count = 0  # 보유한 슈퍼볼 개수
-        self.super_ball_items_collected = 0  # 이번 라운드에서 수집한 슈퍼볼 아이템 개수
-        self.super_ball_active = False  # 슈퍼볼 모드 활성화 여부
-        
-        # 게임 오버 후 이름 입력 관련 초기화
+        self.round_in_progress = False
+        self.bonus_balls_collected = 0
+        self.last_ball_x = SCREEN_WIDTH // 2
+        # 슈퍼볼 관련 변수 전체 삭제
         self.entering_name = False
         self.player_name = ""
         self.input_active = False
         self.name_entered = False
         self.score_saved = False
-        
-        # 첫 번째 라운드의 블록 생성
         self.generate_blocks()
     
     def add_score(self, points):
@@ -390,13 +335,7 @@ class Game:
         return db_manager.get_top_scores(limit)
     
     def use_super_ball(self):
-        """슈퍼볼 사용"""
-        if self.super_ball_count > 0 and not self.round_in_progress:
-            self.super_ball_count -= 1
-            self.super_ball_active = True
-            print(f"슈퍼볼 사용! 남은 개수: {self.super_ball_count}")
-            return True
-        return False
+        pass  # 완전 삭제(호출도 제거)
         
     def generate_blocks(self):
         # 새로운 블록 라인을 맨 위에 추가
@@ -422,15 +361,7 @@ class Game:
                 self.bonus_balls.append(BonusBall(x, y))
                 occupied_positions.append(col)  # 보너스 볼이 생성된 위치도 점유됨으로 표시
         
-        # 슈퍼볼 아이템 생성 - 5% 확률, 블록이나 보너스 볼이 없는 위치에만 생성
-        if random.random() < SUPER_BALL_SPAWN_CHANCE and len(occupied_positions) < BLOCKS_PER_ROW:
-            available_cols = [col for col in range(BLOCKS_PER_ROW) if col not in occupied_positions]
-            if available_cols:
-                col = random.choice(available_cols)
-                # 슈퍼볼 아이템 위치 계산
-                x = 1 + col * (BLOCK_SIZE + BLOCK_MARGIN) + BLOCK_SIZE // 2
-                y = BLOCK_START_Y + BLOCK_SIZE // 2
-                self.super_ball_items.append(SuperBallItem(x, y))
+        # 슈퍼볼 아이템 생성 코드 완전 삭제
         
     def handle_events(self):
         for event in pygame.event.get():
@@ -457,9 +388,6 @@ class Game:
                             if len(self.player_name) < 10 and event.unicode.isprintable():
                                 self.player_name += event.unicode
                         self.input_active = True
-                    elif event.key == pygame.K_s and not self.game_over:
-                        # 슈퍼볼 사용
-                        self.use_super_ball()
                     elif event.key == pygame.K_r and self.game_over:
                         self.reset_game()
                     elif event.key == pygame.K_ESCAPE and not self.game_over:
@@ -546,33 +474,16 @@ class Game:
             self.launch_start_time = pygame.time.get_ticks()
             self.balls_launched = 0
             
-            # 슈퍼볼 모드일 때 추가 공 발사
-            if self.super_ball_active:
-                # 슈퍼볼 모드: 5개의 공을 부채꼴 모양으로 발사
-                angles = [self.launch_angle - 20, self.launch_angle - 10, self.launch_angle, 
-                         self.launch_angle + 10, self.launch_angle + 20]
-                launch_y = SCREEN_HEIGHT - BOTTOM_UI_HEIGHT - BALL_RADIUS - 2
-                
-                for angle in angles:
-                    angle_rad = math.radians(angle)
-                    dx = BALL_SPEED * math.cos(angle_rad)
-                    dy = -BALL_SPEED * math.sin(angle_rad)
-                    ball = Ball(self.launch_x, launch_y, dx, dy, is_super=True)
-                    self.balls.append(ball)
-                    self.balls_launched += 1
-                
-                print("슈퍼볼 발동! 5개의 공을 동시 발사!")
-            else:
-                # 일반 모드: 첫 번째 공 즉시 발사
-                angle_rad = math.radians(self.launch_angle)
-                dx = BALL_SPEED * math.cos(angle_rad)
-                dy = -BALL_SPEED * math.sin(angle_rad)
-                
-                # 공 발사 (바닥보다 조금 위에서 발사)  
-                launch_y = SCREEN_HEIGHT - BOTTOM_UI_HEIGHT - BALL_RADIUS - 2
-                ball = Ball(self.launch_x, launch_y, dx, dy)
-                self.balls.append(ball)
-                self.balls_launched += 1
+            # 슈퍼볼 모드 관련 코드 완전 삭제
+            angle_rad = math.radians(self.launch_angle)
+            dx = BALL_SPEED * math.cos(angle_rad)
+            dy = -BALL_SPEED * math.sin(angle_rad)
+            
+            # 공 발사 (바닥보다 조금 위에서 발사)  
+            launch_y = SCREEN_HEIGHT - BOTTOM_UI_HEIGHT - BALL_RADIUS - 2
+            ball = Ball(self.launch_x, launch_y, dx, dy)
+            self.balls.append(ball)
+            self.balls_launched += 1
         
     def update(self):
         if self.game_state != GAME_STATE_GAME:
@@ -584,8 +495,7 @@ class Game:
         current_time = pygame.time.get_ticks()
         
         # 자동 공 연속 발사 (연속 클릭하지 않아도 됨) - 슈퍼볼 모드에서는 스킵
-        if (self.launching and not self.super_ball_active and
-            self.balls_launched < self.ball_count and 
+        if (self.launching and self.balls_launched < self.ball_count and 
             current_time - self.launch_start_time >= self.balls_launched * BALL_LAUNCH_DELAY):
             
             angle_rad = math.radians(self.launch_angle)
@@ -613,11 +523,7 @@ class Game:
                     bonus.active = False
                     self.bonus_balls_collected += 1  # 라운드 종료 후 적용
                     
-            # 슈퍼볼 아이템 수집
-            for super_item in self.super_ball_items:
-                if ball.collect_super_ball(super_item):
-                    super_item.active = False
-                    self.super_ball_items_collected += 1  # 라운드 종료 후 적용
+            # 슈퍼볼 아이템 수집 코드 완전 삭제
                     
         # 보너스 볼은 고정된 위치에 있으므로 이동하지 않음
             
@@ -632,7 +538,7 @@ class Game:
         self.balls = active_balls
         self.blocks = [block for block in self.blocks if block.active]
         self.bonus_balls = [bonus for bonus in self.bonus_balls if bonus.active]
-        self.super_ball_items = [super_item for super_item in self.super_ball_items if super_item.active]
+        # 슈퍼볼 아이템 리스트 정리 코드 삭제
         
         # 모든 공이 바닥에 떨어졌는지 확인 (라운드 완료)
         if self.round_in_progress and self.balls_launched >= self.ball_count and len(self.balls) == 0:
@@ -640,13 +546,7 @@ class Game:
             self.ball_count += self.bonus_balls_collected
             self.bonus_balls_collected = 0
             
-            # 수집한 슈퍼볼 아이템을 인벤토리에 추가
-            self.super_ball_count += self.super_ball_items_collected
-            self.super_ball_items_collected = 0
-            
-            # 슈퍼볼 모드 비활성화
-            self.super_ball_active = False
-            
+            # 슈퍼볼 관련 코드 삭제
             self.launching = False
             self.round_in_progress = False
             self.next_round()
@@ -670,14 +570,7 @@ class Game:
                 self.input_active = True
                 break
                 
-        for super_item in self.super_ball_items:
-            if super_item.active and super_item.y + super_item.radius >= SCREEN_HEIGHT - BOTTOM_UI_HEIGHT:
-                self.game_over = True
-                if self.score > self.high_score:
-                    self.high_score = self.score
-                # 게임 오버 시 이름 입력 상태 활성화
-                self.input_active = True
-                break
+        # 슈퍼볼 아이템 바닥 충돌 코드 삭제
                 
     def next_round(self):
         # 기존 블록들을 아래로 이동
@@ -689,11 +582,6 @@ class Game:
         for bonus in self.bonus_balls:
             if bonus.active:
                 bonus.move_down()
-                
-        # 기존 슈퍼볼 아이템들도 아래로 이동
-        for super_item in self.super_ball_items:
-            if super_item.active:
-                super_item.move_down()
                 
         # 새로운 블록 생성
         self.generate_blocks()
@@ -709,47 +597,24 @@ class Game:
         if not self.game_over and not self.round_in_progress:
             launch_y = SCREEN_HEIGHT - BOTTOM_UI_HEIGHT - BALL_RADIUS - 2
             
-            # 슈퍼볼 모드일 때는 5개의 조준선을 표시
-            if self.super_ball_active:
-                angles = [self.launch_angle - 20, self.launch_angle - 10, self.launch_angle, 
-                         self.launch_angle + 10, self.launch_angle + 20]
-                for angle in angles:
-                    angle_rad = math.radians(angle)
-                    
-                    # 조준선 (점선 효과) - 노랑색으로 표시
-                    for i in range(0, int(AIM_LINE_LENGTH), 10):
-                        start_x = self.launch_x + i * math.cos(angle_rad)
-                        start_y = launch_y - i * math.sin(angle_rad)
-                        end_x_segment = start_x + 5 * math.cos(angle_rad)
-                        end_y_segment = start_y - 5 * math.sin(angle_rad)
-                        
-                        pygame.draw.line(self.screen, SUPER_BALL_COLOR, 
-                                       (start_x, start_y), (end_x_segment, end_y_segment), 2)
+            # 슈퍼볼 모드 조준선 코드 삭제
+            angle_rad = math.radians(self.launch_angle)
+            
+            # 조준선 (점선 효과)
+            for i in range(0, int(AIM_LINE_LENGTH), 10):
+                start_x = self.launch_x + i * math.cos(angle_rad)
+                start_y = launch_y - i * math.sin(angle_rad)
+                end_x_segment = start_x + 5 * math.cos(angle_rad)
+                end_y_segment = start_y - 5 * math.sin(angle_rad)
                 
-                # 발사점 표시 (노랑색)
-                pygame.draw.circle(self.screen, SUPER_BALL_COLOR, 
-                                 (self.launch_x, launch_y), 8)
-                pygame.draw.circle(self.screen, BLACK, 
-                                 (self.launch_x, launch_y), 8, 2)
-            else:
-                # 일반 모드 조준선
-                angle_rad = math.radians(self.launch_angle)
-                
-                # 조준선 (점선 효과)
-                for i in range(0, int(AIM_LINE_LENGTH), 10):
-                    start_x = self.launch_x + i * math.cos(angle_rad)
-                    start_y = launch_y - i * math.sin(angle_rad)
-                    end_x_segment = start_x + 5 * math.cos(angle_rad)
-                    end_y_segment = start_y - 5 * math.sin(angle_rad)
-                    
-                    pygame.draw.line(self.screen, LIGHT_GRAY, 
-                                   (start_x, start_y), (end_x_segment, end_y_segment), 3)
-                
-                # 발사점 표시
-                pygame.draw.circle(self.screen, CYAN, 
-                                 (self.launch_x, launch_y), 8)
-                pygame.draw.circle(self.screen, WHITE, 
-                                 (self.launch_x, launch_y), 8, 2)
+                pygame.draw.line(self.screen, CYAN, 
+                               (start_x, start_y), (end_x_segment, end_y_segment), 2)
+            
+            # 발사점 표시
+            pygame.draw.circle(self.screen, CYAN, 
+                             (self.launch_x, launch_y), 8)
+            pygame.draw.circle(self.screen, BLACK, 
+                             (self.launch_x, launch_y), 8, 2)
         
     def draw_ui(self):
         # 상단 UI 배경
@@ -787,19 +652,7 @@ class Game:
             bonus_rect.center = (SCREEN_WIDTH // 2 + 40, SCREEN_HEIGHT - 30)
             self.screen.blit(bonus_text, bonus_rect)
             
-        # 슈퍼볼 개수 표시
-        if self.super_ball_count > 0:
-            super_ball_text = self.small_font.render(f"슈퍼볼: {self.super_ball_count}", True, SUPER_BALL_COLOR)
-            super_ball_rect = super_ball_text.get_rect()
-            super_ball_rect.topleft = (10, SCREEN_HEIGHT - 50)
-            self.screen.blit(super_ball_text, super_ball_rect)
-            
-        # 수집한 슈퍼볼 아이템 표시 (있을 때만)
-        if self.super_ball_items_collected > 0:
-            super_collected_text = self.small_font.render(f"+{self.super_ball_items_collected}S", True, SUPER_BALL_COLOR)
-            super_collected_rect = super_collected_text.get_rect()
-            super_collected_rect.center = (SCREEN_WIDTH // 2 + 80, SCREEN_HEIGHT - 30)
-            self.screen.blit(super_collected_text, super_collected_rect)
+        # 슈퍼볼 관련 UI 코드 삭제
         
     def draw(self):
         self.screen.fill(WHITE)
@@ -882,9 +735,7 @@ class Game:
         for bonus in self.bonus_balls:
             bonus.draw(self.screen)
             
-        # 슈퍼볼 아이템 그리기
-        for super_item in self.super_ball_items:
-            super_item.draw(self.screen)
+        # 슈퍼볼 아이템 그리기 코드 삭제
             
         # 공 그리기
         for ball in self.balls:
@@ -954,9 +805,7 @@ class Game:
             help_rect = help_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2))
             self.screen.blit(help_text, help_rect)
             
-            super_help_text = self.small_font.render("S키: 슈퍼볼 사용 (5개 공 동시 발사)", True, SUPER_BALL_COLOR)
-            super_help_rect = super_help_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 25))
-            self.screen.blit(super_help_text, super_help_rect)
+            # 슈퍼볼 도움말 삭제
             
     def draw_settings(self):
         self.screen.fill(DARK_GRAY)
