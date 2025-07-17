@@ -4,23 +4,27 @@ import random
 from constants import *
 from language import get_text, set_language, get_current_language, language_manager
 from database import db_manager
+from shop import Shop
 
 
 class Ball:
-    def __init__(self, x, y, dx, dy):
+    def __init__(self, x, y, dx, dy, game=None):
         self.x = x
         self.y = y
         self.dx = dx
         self.dy = dy
         self.radius = BALL_RADIUS
         self.active = True
+        self.game = game  # Game 인스턴스 참조
         
     def move(self):
         if not self.active:
             return
         
-        self.x += self.dx
-        self.y += self.dy
+        # 스피드볼 효과 적용
+        speed_multiplier = 2 if self.game and self.game.active_powerups.get(2, False) else 1
+        self.x += self.dx * speed_multiplier
+        self.y += self.dy * speed_multiplier
         
         # 좌우 벽 충돌
         if self.x - self.radius <= 0 or self.x + self.radius >= SCREEN_WIDTH:
@@ -96,9 +100,11 @@ class Block:
         self.max_health = health
         self.active = True
         
-    def hit(self):
+    def hit(self, game=None):
         if self.active:
-            self.health -= 1
+            # 파워볼 효과 적용
+            damage = 2 if game and game.active_powerups.get(1, False) else 1
+            self.health -= damage
             if self.health <= 0:
                 self.active = False
                 return True  # 블록이 파괴됨
@@ -245,6 +251,9 @@ class Game:
         self.game_state = GAME_STATE_TITLE
         self.selected_menu = 0  # 선택된 메뉴 항목
         self.settings_menu_selected = 0  # 설정 메뉴에서 선택된 항목
+        
+        self.shop = Shop(self.font, self.score)
+        self.active_powerups = {1: False, 2: False, 3: False}  # 파워볼, 스피드볼, 매그넘볼
         
     def get_menu_items(self):
         """현재 언어에 따른 메뉴 항목들 반환"""
@@ -446,6 +455,10 @@ class Game:
                 elif self.game_state == GAME_STATE_GAME and not self.game_over and not self.round_in_progress:
                     self.start_launch()
                     
+        if self.shop.open:
+            self.shop.handle_event(pygame.event.get())
+            return True
+            
         return True
         
     def handle_title_input(self, key):
@@ -481,11 +494,14 @@ class Game:
             
             # 공 발사 (바닥보다 조금 위에서 발사)  
             launch_y = SCREEN_HEIGHT - BOTTOM_UI_HEIGHT - BALL_RADIUS - 2
-            ball = Ball(self.launch_x, launch_y, dx, dy)
+            ball = Ball(self.launch_x, launch_y, dx, dy, self) # Game 인스턴스 전달
             self.balls.append(ball)
             self.balls_launched += 1
         
     def update(self):
+        if self.shop.open:
+            return
+            
         if self.game_state != GAME_STATE_GAME:
             return
             
@@ -503,7 +519,8 @@ class Game:
             dy = -BALL_SPEED * math.sin(angle_rad)
             
             launch_y = SCREEN_HEIGHT - BOTTOM_UI_HEIGHT - BALL_RADIUS - 2
-            self.balls.append(Ball(self.launch_x, launch_y, dx, dy))
+            ball = Ball(self.launch_x, launch_y, dx, dy, self) # Game 인스턴스 전달
+            self.balls.append(ball)
             self.balls_launched += 1
             
         # 공 이동 및 충돌 처리
@@ -513,7 +530,7 @@ class Game:
             # 블록과 충돌 검사
             for block in self.blocks[:]:  # 복사본을 사용하여 안전한 반복
                 if ball.bounce_block(block):
-                    if block.hit():
+                    if block.hit(self): # Game 인스턴스 전달
                         # 블록이 파괴되면 점수 추가
                         self.add_score(block.get_score_value())
                         
@@ -572,6 +589,24 @@ class Game:
                 
         # 슈퍼볼 아이템 바닥 충돌 코드 삭제
                 
+        # 매그넘볼 효과: 공이 1개 남았을 때 모든 블록 제거
+        if self.active_powerups[3] and len(self.balls) == 1:
+            for block in self.blocks:
+                block.active = False
+            self.active_powerups[3] = False
+        # 파워볼/스피드볼 효과 적용은 Ball/Block 처리에서 반영 예정
+        # 라운드 종료 후 상점 오픈
+        if self.round_in_progress and self.balls_launched >= self.ball_count and len(self.balls) == 0:
+            self.shop.open = True
+            self.shop.reset(self.score)
+            
+        # 블록 삭제 아이템 효과: shop.owned_items에 있으면 즉시 모든 블록 제거
+        for item in self.shop.owned_items[:]:
+            if item['name'] == "블록 삭제":
+                for block in self.blocks:
+                    block.active = False
+                self.shop.owned_items.remove(item)
+            
     def next_round(self):
         # 기존 블록들을 아래로 이동
         for block in self.blocks:
@@ -591,6 +626,10 @@ class Game:
         
         # 발사 위치를 마지막 공이 떨어진 위치로 설정 (화면 경계 제한)
         self.launch_x = max(20, min(SCREEN_WIDTH - 20, self.last_ball_x))
+        
+        # 라운드 시작 시 파워업 초기화
+        self.active_powerups = {1: False, 2: False, 3: False}
+        self.shop.owned_items = []
         
     def draw_aim_line(self):
         # 게임 오버가 아니고 라운드가 진행 중이 아닐 때만 조준선 표시

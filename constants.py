@@ -88,3 +88,11 @@ TITLE_FONT_SIZE = 48
 MENU_FONT_SIZE = 32
 MENU_ITEM_HEIGHT = 60
 MENU_START_Y = 300
+
+# 상점 아이템 목록
+SHOP_ITEMS = [
+    {"name": "파워볼", "price": 100, "desc": "벽돌을 2배로 깸", "key": 1},
+    {"name": "스피드볼", "price": 150, "desc": "공 속도 2배", "key": 2},
+    {"name": "매그넘볼", "price": 200, "desc": "공 1개 남으면 모든 블록 제거", "key": 3},
+    {"name": "블록 삭제", "price": 300, "desc": "모든 블록 즉시 삭제", "key": None},
+]
