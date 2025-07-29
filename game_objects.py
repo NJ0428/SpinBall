@@ -164,15 +164,25 @@ class Block:
             pygame.draw.rect(screen, WHITE, block_rect, 2, border_radius=8)
             
             # 체력 표시 (더 모던한 스타일)
-            font = pygame.font.Font(None, 24)
-            text = font.render(str(self.health), True, WHITE)
-            text_rect = text.get_rect(center=(self.x + BLOCK_SIZE//2, self.y + BLOCK_SIZE//2 + 5))
-            
-            # 텍스트 그림자
-            shadow = font.render(str(self.health), True, BLACK)
-            shadow_rect = shadow.get_rect(center=(self.x + BLOCK_SIZE//2 + 1, self.y + BLOCK_SIZE//2 + 6))
-            screen.blit(shadow, shadow_rect)
-            screen.blit(text, text_rect)
+            try:
+                font = pygame.font.Font(None, 24)
+                text = font.render(str(self.health), True, WHITE)
+                text_rect = text.get_rect(center=(self.x + BLOCK_SIZE//2, self.y + BLOCK_SIZE//2 + 5))
+                
+                # 텍스트 그림자
+                shadow = font.render(str(self.health), True, BLACK)
+                shadow_rect = shadow.get_rect(center=(self.x + BLOCK_SIZE//2 + 1, self.y + BLOCK_SIZE//2 + 6))
+                screen.blit(shadow, shadow_rect)
+                screen.blit(text, text_rect)
+            except:
+                # 폰트 렌더링 실패 시 기본 처리
+                try:
+                    default_font = pygame.font.Font(None, 20)
+                    text = default_font.render(str(self.health), True, WHITE)
+                    text_rect = text.get_rect(center=(self.x + BLOCK_SIZE//2, self.y + BLOCK_SIZE//2))
+                    screen.blit(text, text_rect)
+                except:
+                    pass  # 텍스트 렌더링 완전 실패 시 숫자 없이 표시
 
 
 class BonusBall:
@@ -212,10 +222,20 @@ class BonusBall:
             pygame.draw.circle(screen, WHITE, (int(self.x), int(self.y)), self.radius + pulse, 2)
             
             # "+1" 텍스트 (더 눈에 띄게)
-            font = pygame.font.Font(None, 18)
-            text = font.render("+1", True, BLACK)
-            text_rect = text.get_rect(center=(int(self.x), int(self.y)))
-            screen.blit(text, text_rect)
+            try:
+                font = pygame.font.Font(None, 18)
+                text = font.render("+1", True, BLACK)
+                text_rect = text.get_rect(center=(int(self.x), int(self.y)))
+                screen.blit(text, text_rect)
+            except:
+                # 폰트 렌더링 실패 시 기본 처리
+                try:
+                    default_font = pygame.font.Font(None, 16)
+                    text = default_font.render("+1", True, BLACK)
+                    text_rect = text.get_rect(center=(int(self.x), int(self.y)))
+                    screen.blit(text, text_rect)
+                except:
+                    pass  # 텍스트 렌더링 완전 실패 시 텍스트 없이 표시
 
 
 class Game:
@@ -801,7 +821,7 @@ class Game:
         pygame.draw.circle(self.screen, NEON_GREEN, (SCREEN_WIDTH//2 - 30, SCREEN_HEIGHT - 55), 8)
         pygame.draw.circle(self.screen, WHITE, (SCREEN_WIDTH//2 - 30, SCREEN_HEIGHT - 55), 8, 2)
         
-        ball_count_text = self.font.render(f"×{self.ball_count}", True, WHITE)
+        ball_count_text = self.safe_render_text(self.font, f"×{self.ball_count}", WHITE)
         text_rect = ball_count_text.get_rect()
         text_rect.center = (SCREEN_WIDTH//2 + 10, SCREEN_HEIGHT - 55)
         self.screen.blit(ball_count_text, text_rect)
@@ -815,7 +835,7 @@ class Game:
             pygame.draw.rect(self.screen, DARKER_SURFACE, bonus_bg, border_radius=15)
             pygame.draw.rect(self.screen, BONUS_GREEN, bonus_bg, 2, border_radius=15)
             
-            bonus_text = self.small_font.render(f"+{self.bonus_balls_collected}", True, BONUS_GREEN)
+            bonus_text = self.safe_render_text(self.small_font, f"+{self.bonus_balls_collected}", BONUS_GREEN)
             bonus_rect = bonus_text.get_rect()
             bonus_rect.center = (SCREEN_WIDTH//2 + 100, SCREEN_HEIGHT - 55)
             self.screen.blit(bonus_text, bonus_rect)
@@ -857,7 +877,7 @@ class Game:
                 pygame.gfxdraw.filled_circle(self.screen, x, y, 2, color)
         
         # 게임 타이틀 (네온 효과)
-        title_text = self.title_font.render("SpinBall", True, NEON_CYAN)
+        title_text = self.safe_render_text(self.title_font, "SpinBall", NEON_CYAN)
         title_rect = title_text.get_rect(center=(SCREEN_WIDTH//2, 120))
         
         # 네온 글로우 효과
@@ -870,7 +890,7 @@ class Game:
         self.screen.blit(title_text, title_rect)
         
         # 서브타이틀
-        subtitle = self.small_font.render("Modern Block Breaker", True, TEXT_SECONDARY)
+        subtitle = self.safe_render_text(self.small_font, "Modern Block Breaker", TEXT_SECONDARY)
         subtitle_rect = subtitle.get_rect(center=(SCREEN_WIDTH//2, 160))
         self.screen.blit(subtitle, subtitle_rect)
         
@@ -917,7 +937,7 @@ class Game:
         self.screen.blit(control_surface, (20, SCREEN_HEIGHT - 80))
         pygame.draw.rect(self.screen, TEXT_SECONDARY, control_card, 1, border_radius=10)
         
-        control_text = self.small_font.render("↑↓ Navigate • ENTER Select • Mouse Click", True, TEXT_SECONDARY)
+        control_text = self.safe_render_text(self.small_font, "Navigate: ↑↓ • Select: ENTER • Mouse Click", TEXT_SECONDARY)
         control_rect = control_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 50))
         self.screen.blit(control_text, control_rect)
         
@@ -960,8 +980,8 @@ class Game:
             self.screen.blit(game_over_text, game_over_rect)
             
             # 점수 표시 (하이라이트)
-            score_label = self.small_font.render("FINAL SCORE", True, TEXT_SECONDARY)
-            score_value = self.font.render(f"{self.score:,}", True, NEON_CYAN)
+            score_label = self.safe_render_text(self.small_font, "FINAL SCORE", TEXT_SECONDARY)
+            score_value = self.safe_render_text(self.font, f"{self.score:,}", NEON_CYAN)
             score_label_rect = score_label.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 60))
             score_value_rect = score_value.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 35))
             self.screen.blit(score_label, score_label_rect)
