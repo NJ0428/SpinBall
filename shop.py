@@ -11,6 +11,21 @@ class Shop:
         self.selected_item = None
         self.owned_items = []  # 이번 라운드에 구매한 아이템
         self.player_score = player_score
+        
+    def safe_render_text(self, font, text, color):
+        """안전한 텍스트 렌더링 (한글 깨짐 방지)"""
+        try:
+            return font.render(text, True, color)
+        except:
+            try:
+                # 기본 폰트로 대체
+                default_font = pygame.font.Font(None, 24)
+                return default_font.render(str(text), True, color)
+            except:
+                # ASCII로 변환
+                safe_text = str(text).encode('ascii', 'ignore').decode('ascii')
+                default_font = pygame.font.Font(None, 24)
+                return default_font.render(safe_text if safe_text else "Text", True, color)
 
     def draw(self, surface):
         
@@ -25,12 +40,12 @@ class Shop:
         pygame.draw.rect(surface, NEON_PURPLE, shop_card, 3, border_radius=20)
 
         # 상점 타이틀 (네온 효과)
-        title = self.font.render("🛒 POWER-UP SHOP", True, NEON_PURPLE)
+        title = self.safe_render_text(self.font, "POWER-UP SHOP", NEON_PURPLE)
         title_rect = title.get_rect(center=(surface.get_width() // 2, 100))
         surface.blit(title, title_rect)
         
         # 현재 점수 표시
-        score_text = self.font.render(f"Credits: {self.player_score:,}", True, NEON_CYAN)
+        score_text = self.safe_render_text(self.font, f"Credits: {self.player_score:,}", NEON_CYAN)
         score_rect = score_text.get_rect(center=(surface.get_width() // 2, 130))
         surface.blit(score_text, score_rect)
 
@@ -55,9 +70,9 @@ class Shop:
                 price_color = DARK_GRAY
             
             # 아이템 정보
-            name_text = self.font.render(item['name'], True, text_color)
-            desc_text = self.font.render(item['desc'], True, TEXT_SECONDARY if can_afford else DARK_GRAY)
-            price_text = self.font.render(f"{item['price']:,}", True, price_color)
+            name_text = self.safe_render_text(self.font, item['name'], text_color)
+            desc_text = self.safe_render_text(self.font, item['desc'], TEXT_SECONDARY if can_afford else DARK_GRAY)
+            price_text = self.safe_render_text(self.font, f"{item['price']:,}", price_color)
             
             surface.blit(name_text, (60, y + 10))
             surface.blit(desc_text, (60, y + 35))
@@ -67,10 +82,10 @@ class Shop:
             btn_rect = pygame.Rect(surface.get_width() - 120, y + 35, 80, 25)
             if can_afford:
                 pygame.draw.rect(surface, NEON_GREEN, btn_rect, border_radius=6)
-                btn_text = self.font.render("BUY", True, BLACK)
+                btn_text = self.safe_render_text(self.font, "BUY", BLACK)
             else:
                 pygame.draw.rect(surface, DARK_GRAY, btn_rect, border_radius=6)
-                btn_text = self.font.render("BUY", True, DARKER_SURFACE)
+                btn_text = self.safe_render_text(self.font, "BUY", DARKER_SURFACE)
             
             btn_text_rect = btn_text.get_rect(center=btn_rect.center)
             surface.blit(btn_text, btn_text_rect)
@@ -80,7 +95,7 @@ class Shop:
         close_rect = pygame.Rect(surface.get_width()//2 - 60, surface.get_height() - 80, 120, 40)
         pygame.draw.rect(surface, DARK_SURFACE, close_rect, border_radius=20)
         pygame.draw.rect(surface, NEON_CYAN, close_rect, 2, border_radius=20)
-        close_text = self.font.render("CLOSE", True, NEON_CYAN)
+        close_text = self.safe_render_text(self.font, "CLOSE", NEON_CYAN)
         close_text_rect = close_text.get_rect(center=close_rect.center)
         surface.blit(close_text, close_text_rect)
         self.close_rect = close_rect

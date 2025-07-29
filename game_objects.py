@@ -225,55 +225,62 @@ class Game:
         pygame.display.set_caption("볼즈 게임")
         self.clock = pygame.time.Clock()
         
-        # 한글 폰트 설정 시도
+        # 한글 폰트 설정 (더 안정적인 방법)
         font_loaded = False
+        self.current_font_path = None
+        
+        # Windows 한글 폰트 경로들 (우선순위 순)
         font_paths = [
-            "malgun.ttf",  # Windows 맑은고딕
-            "C:/Windows/Fonts/malgun.ttf",
-            "gulim.ttc",   # Windows 굴림
-            "C:/Windows/Fonts/gulim.ttc",
-            "batang.ttc",  # Windows 바탕
-            "C:/Windows/Fonts/batang.ttc",
+            "C:/Windows/Fonts/malgun.ttf",      # 맑은고딕
+            "C:/Windows/Fonts/malgunbd.ttf",    # 맑은고딕 Bold
+            "C:/Windows/Fonts/gulim.ttc",       # 굴림
+            "C:/Windows/Fonts/batang.ttc",      # 바탕
+            "C:/Windows/Fonts/dotum.ttc",       # 돋움
+            "C:/Windows/Fonts/gungsuh.ttc",     # 궁서
+            "malgun.ttf",                       # 상대경로 시도
+            "gulim.ttc",
+            "batang.ttc",
         ]
         
+        # 한글 폰트 로딩 시도
         for font_path in font_paths:
             try:
-                self.font = pygame.font.Font(font_path, 24)
-                self.small_font = pygame.font.Font(font_path, 20)
-                self.large_font = pygame.font.Font(font_path, 28)
-                font_loaded = True
-                break
-            except:
-                continue
-                
-        if not font_loaded:
-            # 시스템 기본 폰트 사용
-            self.font = pygame.font.Font(None, 32)
-            self.small_font = pygame.font.Font(None, 24)
-            self.large_font = pygame.font.Font(None, 36)
-        
-        # 타이틀 화면용 한글 폰트 추가
-        self.current_font_path = None
-        for font_path in font_paths:
-            try:
-                # 각 폰트 경로를 테스트
+                # 테스트 폰트 생성
                 test_font = pygame.font.Font(font_path, 24)
+                # 한글 렌더링 테스트
+                test_surface = test_font.render("한글테스트", True, (255, 255, 255))
+                
+                # 성공하면 모든 폰트 생성
+                self.font = pygame.font.Font(font_path, 24)
+                self.small_font = pygame.font.Font(font_path, 18)
+                self.large_font = pygame.font.Font(font_path, 28)
+                self.title_font = pygame.font.Font(font_path, TITLE_FONT_SIZE)
+                self.menu_font = pygame.font.Font(font_path, MENU_FONT_SIZE)
+                
                 self.current_font_path = font_path
+                font_loaded = True
+                print(f"한글 폰트 로딩 성공: {font_path}")
                 break
-            except:
+            except Exception as e:
                 continue
                 
-        # 타이틀 화면용 폰트 생성
-        try:
-            if self.current_font_path:
-                self.title_font = pygame.font.Font(self.current_font_path, TITLE_FONT_SIZE)
-                self.menu_font = pygame.font.Font(self.current_font_path, MENU_FONT_SIZE)
-            else:
-                raise Exception("No Korean font found")
-        except:
-            # 한글 폰트 로딩 실패 시 기본 폰트 사용
-            self.title_font = pygame.font.Font(None, TITLE_FONT_SIZE)
-            self.menu_font = pygame.font.Font(None, MENU_FONT_SIZE)
+        # 한글 폰트 로딩 실패 시 시스템 기본 폰트 사용
+        if not font_loaded:
+            print("한글 폰트 로딩 실패, 기본 폰트 사용")
+            try:
+                # 시스템 기본 폰트로 대체
+                self.font = pygame.font.SysFont('arial', 24)
+                self.small_font = pygame.font.SysFont('arial', 18)
+                self.large_font = pygame.font.SysFont('arial', 28)
+                self.title_font = pygame.font.SysFont('arial', TITLE_FONT_SIZE)
+                self.menu_font = pygame.font.SysFont('arial', MENU_FONT_SIZE)
+            except:
+                # 최후의 수단: pygame 기본 폰트
+                self.font = pygame.font.Font(None, 32)
+                self.small_font = pygame.font.Font(None, 24)
+                self.large_font = pygame.font.Font(None, 36)
+                self.title_font = pygame.font.Font(None, TITLE_FONT_SIZE + 8)
+                self.menu_font = pygame.font.Font(None, MENU_FONT_SIZE + 8)
         
         # 설정 값들
         self.settings = {
@@ -304,6 +311,27 @@ class Game:
         
         self.shop = Shop(self.font, self.score)
         self.active_powerups = {1: False, 2: False, 3: False}  # 파워볼, 스피드볼, 매그넘볼
+        
+    def safe_render_text(self, font, text, color, fallback_font=None):
+        """안전한 텍스트 렌더링 (한글 깨짐 방지)"""
+        try:
+            return font.render(text, True, color)
+        except:
+            # 폰트 렌더링 실패 시 대체 폰트 사용
+            if fallback_font:
+                try:
+                    return fallback_font.render(text, True, color)
+                except:
+                    pass
+            # 최후의 수단: 기본 폰트
+            try:
+                default_font = pygame.font.Font(None, 24)
+                return default_font.render(str(text), True, color)
+            except:
+                # 텍스트를 ASCII로 변환
+                safe_text = text.encode('ascii', 'ignore').decode('ascii')
+                default_font = pygame.font.Font(None, 24)
+                return default_font.render(safe_text if safe_text else "Text", True, color)
         
     def get_menu_items(self):
         """현재 언어에 따른 메뉴 항목들 반환"""
@@ -735,14 +763,14 @@ class Game:
         pygame.draw.rect(self.screen, NEON_CYAN, score_card, 1, border_radius=8)
         
         # 점수 텍스트
-        score_label = self.small_font.render("SCORE", True, TEXT_SECONDARY)
-        score_value = self.font.render(f"{self.score:,}", True, NEON_CYAN)
+        score_label = self.safe_render_text(self.small_font, "SCORE", TEXT_SECONDARY)
+        score_value = self.safe_render_text(self.font, f"{self.score:,}", NEON_CYAN)
         self.screen.blit(score_label, (25, 20))
         self.screen.blit(score_value, (25, 40))
         
         # 베스트 스코어 (작게)
         if self.high_score > 0:
-            best_text = self.small_font.render(f"BEST: {self.high_score:,}", True, TEXT_SECONDARY)
+            best_text = self.safe_render_text(self.small_font, f"BEST: {self.high_score:,}", TEXT_SECONDARY)
             self.screen.blit(best_text, (180, 25))
         
         # 라운드 카드 (오른쪽)
@@ -750,8 +778,8 @@ class Game:
         pygame.draw.rect(self.screen, DARKER_SURFACE, round_card, border_radius=8)
         pygame.draw.rect(self.screen, NEON_PURPLE, round_card, 1, border_radius=8)
         
-        round_label = self.small_font.render("ROUND", True, TEXT_SECONDARY)
-        round_value = self.font.render(f"{self.round_num}", True, NEON_PURPLE)
+        round_label = self.safe_render_text(self.small_font, "ROUND", TEXT_SECONDARY)
+        round_value = self.safe_render_text(self.font, f"{self.round_num}", NEON_PURPLE)
         self.screen.blit(round_label, (SCREEN_WIDTH - 90, 20))
         self.screen.blit(round_value, (SCREEN_WIDTH - 75, 40))
         
@@ -878,7 +906,7 @@ class Game:
             except:
                 menu_font = self.menu_font
             
-            menu_text = menu_font.render(item, True, text_color)
+            menu_text = self.safe_render_text(menu_font, item, text_color)
             menu_rect = menu_text.get_rect(center=(SCREEN_WIDTH//2, y))
             self.screen.blit(menu_text, menu_rect)
         
@@ -927,7 +955,7 @@ class Game:
             pygame.draw.rect(self.screen, NEON_PINK, card_rect, 3, border_radius=20)
             
             # 게임 오버 타이틀 (네온 효과)
-            game_over_text = self.large_font.render(get_text('game_over'), True, NEON_PINK)
+            game_over_text = self.safe_render_text(self.large_font, get_text('game_over'), NEON_PINK)
             game_over_rect = game_over_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 100))
             self.screen.blit(game_over_text, game_over_rect)
             
@@ -1024,7 +1052,7 @@ class Game:
                 title_font = self.large_font
         except:
             title_font = self.large_font
-        title_text = title_font.render("⚙️ " + get_text('settings_title'), True, NEON_ORANGE)
+        title_text = self.safe_render_text(title_font, "⚙️ " + get_text('settings_title'), NEON_ORANGE)
         title_rect = title_text.get_rect(center=(SCREEN_WIDTH//2, 90))
         self.screen.blit(title_text, title_rect)
         
@@ -1113,7 +1141,7 @@ class Game:
                 title_font = self.large_font
         except:
             title_font = self.large_font
-        title_text = title_font.render("🏆 " + get_text('ranking_title'), True, NEON_YELLOW)
+        title_text = self.safe_render_text(title_font, "🏆 " + get_text('ranking_title'), NEON_YELLOW)
         title_rect = title_text.get_rect(center=(SCREEN_WIDTH//2, 80))
         self.screen.blit(title_text, title_rect)
         
