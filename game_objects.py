@@ -48,6 +48,13 @@ class Ball:
             self.y + self.radius >= block.y and 
             self.y - self.radius <= block.y + BLOCK_SIZE):
             
+            # 투명 블록의 경우 hit 메서드에서 통과 여부를 결정
+            # hit이 False를 반환하면 공이 통과한 것
+            if block.block_type == BLOCK_TYPE_GHOST:
+                hit_result = block.hit(self.game)
+                if not hit_result:
+                    return False  # 공이 통과함, 반사하지 않음
+            
             # 충돌 방향 결정
             center_x = block.x + BLOCK_SIZE / 2
             center_y = block.y + BLOCK_SIZE / 2
@@ -106,32 +113,87 @@ class Ball:
 
 
 class Block:
-    def __init__(self, x, y, health):
+    def __init__(self, x, y, health, block_type=BLOCK_TYPE_NORMAL):
         self.x = x
         self.y = y
         self.health = health
         self.max_health = health
         self.active = True
+        self.block_type = block_type
+        self.shield_hits = 0  # 방어막 블록이 맞은 횟수
+        self.alpha = 255  # 투명 블록의 투명도
         
     def hit(self, game=None):
-        if self.active:
-            # 파워볼 효과 적용
-            damage = 2 if game and game.active_powerups.get(1, False) else 1
-            self.health -= damage
-            if self.health <= 0:
-                self.active = False
-                return True  # 블록이 파괴됨
+        if not self.active:
+            return False
+            
+        # 투명 블록: 일정 확률로 공이 통과
+        if self.block_type == BLOCK_TYPE_GHOST:
+            if random.random() < GHOST_BLOCK_PASS_CHANCE:
+                return False  # 공이 통과함 (충돌하지 않음)
+        
+        # 방어막 블록: 3번 맞아야 파괴
+        if self.block_type == BLOCK_TYPE_SHIELD:
+            self.shield_hits += 1
+            if self.shield_hits < 3:
+                return False  # 아직 파괴되지 않음
+        
+        # 파워볼 효과 적용
+        damage = 2 if game and game.active_powerups.get(1, False) else 1
+        self.health -= damage
+        
+        if self.health <= 0:
+            self.active = False
+            
+            # 폭탄 블록: 주변 블록도 파괴
+            if self.block_type == BLOCK_TYPE_BOMB and game:
+                self.explode_nearby_blocks(game)
+            
+            return True  # 블록이 파괴됨
         return False
+    
+    def explode_nearby_blocks(self, game):
+        """폭탄 블록 폭발 시 주변 블록들 파괴"""
+        explosion_range = BLOCK_SIZE + BLOCK_MARGIN + 10  # 폭발 범위
+        
+        for block in game.blocks:
+            if block != self and block.active:
+                # 거리 계산
+                dx = abs(block.x - self.x)
+                dy = abs(block.y - self.y)
+                distance = math.sqrt(dx*dx + dy*dy)
+                
+                # 폭발 범위 내의 블록들 파괴
+                if distance <= explosion_range:
+                    block.active = False
+                    # 폭발로 파괴된 블록도 점수 추가
+                    game.add_score(block.get_score_value())
     
     def get_score_value(self):
         """블록이 주는 점수 값 (체력에 비례)"""
-        return self.max_health * 10
+        base_score = self.max_health * 10
+        # 특수 블록은 보너스 점수
+        if self.block_type == BLOCK_TYPE_BOMB:
+            return base_score * 2  # 폭탄 블록은 2배 점수
+        elif self.block_type == BLOCK_TYPE_SHIELD:
+            return base_score * 3  # 방어막 블록은 3배 점수
+        elif self.block_type == BLOCK_TYPE_GHOST:
+            return base_score * 2  # 투명 블록은 2배 점수
+        return base_score
         
     def move_down(self):
         self.y += BLOCK_SIZE + BLOCK_MARGIN
         
     def get_color(self):
-        # 체력에 따라 그라데이션 색상 결정
+        # 특수 블록 색상 우선 처리
+        if self.block_type == BLOCK_TYPE_BOMB:
+            return BOMB_BLOCK_COLOR
+        elif self.block_type == BLOCK_TYPE_SHIELD:
+            return SHIELD_BLOCK_COLOR
+        elif self.block_type == BLOCK_TYPE_GHOST:
+            return GHOST_BLOCK_COLOR
+        
+        # 일반 블록: 체력에 따라 그라데이션 색상 결정
         if self.health >= 15:
             return NEON_PINK
         elif self.health >= 12:
@@ -153,36 +215,112 @@ class Block:
             
             # 메인 블록 (그라데이션 효과)
             block_rect = pygame.Rect(self.x, self.y, BLOCK_SIZE, BLOCK_SIZE)
-            pygame.draw.rect(screen, color, block_rect, border_radius=8)
+            
+            # 투명 블록은 반투명 효과
+            if self.block_type == BLOCK_TYPE_GHOST:
+                # 투명 블록 전용 서페이스 생성
+                ghost_surface = pygame.Surface((BLOCK_SIZE, BLOCK_SIZE), pygame.SRCALPHA)
+                pygame.draw.rect(ghost_surface, (*color, 150), (0, 0, BLOCK_SIZE, BLOCK_SIZE), border_radius=8)
+                screen.blit(ghost_surface, (self.x, self.y))
+            else:
+                pygame.draw.rect(screen, color, block_rect, border_radius=8)
             
             # 내부 하이라이트 (3D 효과)
             highlight_color = tuple(min(255, c + 40) for c in color)
             highlight_rect = pygame.Rect(self.x + 2, self.y + 2, BLOCK_SIZE - 4, BLOCK_SIZE//3)
-            pygame.draw.rect(screen, highlight_color, highlight_rect, border_radius=6)
+            
+            if self.block_type == BLOCK_TYPE_GHOST:
+                highlight_surface = pygame.Surface((BLOCK_SIZE - 4, BLOCK_SIZE//3), pygame.SRCALPHA)
+                pygame.draw.rect(highlight_surface, (*highlight_color, 150), (0, 0, BLOCK_SIZE - 4, BLOCK_SIZE//3), border_radius=6)
+                screen.blit(highlight_surface, (self.x + 2, self.y + 2))
+            else:
+                pygame.draw.rect(screen, highlight_color, highlight_rect, border_radius=6)
+            
+            # 특수 블록 아이콘 표시
+            self.draw_special_icon(screen)
             
             # 네온 테두리
-            pygame.draw.rect(screen, WHITE, block_rect, 2, border_radius=8)
+            if self.block_type == BLOCK_TYPE_GHOST:
+                # 투명 블록은 점선 테두리
+                for i in range(0, BLOCK_SIZE, 8):
+                    pygame.draw.rect(screen, WHITE, (self.x + i, self.y, 4, 2))
+                    pygame.draw.rect(screen, WHITE, (self.x + i, self.y + BLOCK_SIZE - 2, 4, 2))
+                    pygame.draw.rect(screen, WHITE, (self.x, self.y + i, 2, 4))
+                    pygame.draw.rect(screen, WHITE, (self.x + BLOCK_SIZE - 2, self.y + i, 2, 4))
+            else:
+                pygame.draw.rect(screen, WHITE, block_rect, 2, border_radius=8)
             
             # 체력 표시 (더 모던한 스타일)
-            try:
-                font = pygame.font.Font(None, 24)
-                text = font.render(str(self.health), True, WHITE)
-                text_rect = text.get_rect(center=(self.x + BLOCK_SIZE//2, self.y + BLOCK_SIZE//2 + 5))
+            self.draw_health_text(screen)
+    
+    def draw_special_icon(self, screen):
+        """특수 블록 아이콘 그리기"""
+        center_x = self.x + BLOCK_SIZE // 2
+        center_y = self.y + BLOCK_SIZE // 2
+        
+        if self.block_type == BLOCK_TYPE_BOMB:
+            # 폭탄 아이콘 (작은 원과 심지)
+            pygame.draw.circle(screen, (255, 255, 0), (center_x, center_y + 5), 8)
+            pygame.draw.circle(screen, (255, 0, 0), (center_x, center_y + 5), 8, 2)
+            # 심지
+            pygame.draw.line(screen, (255, 255, 0), (center_x - 5, center_y - 3), (center_x - 8, center_y - 8), 2)
+            
+        elif self.block_type == BLOCK_TYPE_SHIELD:
+            # 방어막 아이콘 (방패 모양)
+            shield_points = [
+                (center_x, center_y - 8),
+                (center_x - 6, center_y - 4),
+                (center_x - 6, center_y + 4),
+                (center_x, center_y + 8),
+                (center_x + 6, center_y + 4),
+                (center_x + 6, center_y - 4)
+            ]
+            pygame.draw.polygon(screen, (255, 255, 255), shield_points)
+            pygame.draw.polygon(screen, (0, 0, 0), shield_points, 2)
+            
+            # 방어막 히트 표시 (작은 점들)
+            for i in range(self.shield_hits):
+                pygame.draw.circle(screen, (255, 0, 0), (center_x - 4 + i * 4, center_y), 2)
                 
-                # 텍스트 그림자
-                shadow = font.render(str(self.health), True, BLACK)
-                shadow_rect = shadow.get_rect(center=(self.x + BLOCK_SIZE//2 + 1, self.y + BLOCK_SIZE//2 + 6))
-                screen.blit(shadow, shadow_rect)
+        elif self.block_type == BLOCK_TYPE_GHOST:
+            # 투명 블록 아이콘 (유령 모양)
+            ghost_points = [
+                (center_x, center_y - 6),
+                (center_x - 5, center_y - 3),
+                (center_x - 5, center_y + 3),
+                (center_x - 3, center_y + 6),
+                (center_x - 1, center_y + 4),
+                (center_x + 1, center_y + 6),
+                (center_x + 3, center_y + 4),
+                (center_x + 5, center_y + 6),
+                (center_x + 5, center_y - 3)
+            ]
+            pygame.draw.polygon(screen, (255, 255, 255), ghost_points)
+            # 눈
+            pygame.draw.circle(screen, (0, 0, 0), (center_x - 2, center_y - 2), 1)
+            pygame.draw.circle(screen, (0, 0, 0), (center_x + 2, center_y - 2), 1)
+    
+    def draw_health_text(self, screen):
+        """체력 텍스트 그리기"""
+        try:
+            font = pygame.font.Font(None, 24)
+            text = font.render(str(self.health), True, WHITE)
+            text_rect = text.get_rect(center=(self.x + BLOCK_SIZE//2, self.y + BLOCK_SIZE//2 + 5))
+            
+            # 텍스트 그림자
+            shadow = font.render(str(self.health), True, BLACK)
+            shadow_rect = shadow.get_rect(center=(self.x + BLOCK_SIZE//2 + 1, self.y + BLOCK_SIZE//2 + 6))
+            screen.blit(shadow, shadow_rect)
+            screen.blit(text, text_rect)
+        except:
+            # 폰트 렌더링 실패 시 기본 처리
+            try:
+                default_font = pygame.font.Font(None, 20)
+                text = default_font.render(str(self.health), True, WHITE)
+                text_rect = text.get_rect(center=(self.x + BLOCK_SIZE//2, self.y + BLOCK_SIZE//2))
                 screen.blit(text, text_rect)
             except:
-                # 폰트 렌더링 실패 시 기본 처리
-                try:
-                    default_font = pygame.font.Font(None, 20)
-                    text = default_font.render(str(self.health), True, WHITE)
-                    text_rect = text.get_rect(center=(self.x + BLOCK_SIZE//2, self.y + BLOCK_SIZE//2))
-                    screen.blit(text, text_rect)
-                except:
-                    pass  # 텍스트 렌더링 완전 실패 시 숫자 없이 표시
+                pass  # 텍스트 렌더링 완전 실패 시 숫자 없이 표시
 
 
 class BonusBall:
@@ -454,7 +592,19 @@ class Game:
                 x = 1 + col * (BLOCK_SIZE + BLOCK_MARGIN)
                 y = BLOCK_START_Y
                 health = self.round_num  # 라운드 수와 같은 체력
-                self.blocks.append(Block(x, y, health))
+                
+                # 특수 블록 타입 결정
+                block_type = BLOCK_TYPE_NORMAL
+                rand = random.random()
+                
+                if rand < BOMB_BLOCK_CHANCE:
+                    block_type = BLOCK_TYPE_BOMB
+                elif rand < BOMB_BLOCK_CHANCE + SHIELD_BLOCK_CHANCE:
+                    block_type = BLOCK_TYPE_SHIELD
+                elif rand < BOMB_BLOCK_CHANCE + SHIELD_BLOCK_CHANCE + GHOST_BLOCK_CHANCE:
+                    block_type = BLOCK_TYPE_GHOST
+                
+                self.blocks.append(Block(x, y, health, block_type))
                 occupied_positions.append(col)
         
         # 보너스 볼 생성 - 블록이 없는 위치에만 생성
@@ -628,9 +778,15 @@ class Game:
             # 블록과 충돌 검사
             for block in self.blocks[:]:  # 복사본을 사용하여 안전한 반복
                 if ball.bounce_block(block):
-                    if block.hit(self): # Game 인스턴스 전달
-                        # 블록이 파괴되면 점수 추가
-                        self.add_score(block.get_score_value())
+                    # 투명 블록이 아닌 경우에만 hit 처리 (투명 블록은 bounce_block에서 처리됨)
+                    if block.block_type != BLOCK_TYPE_GHOST:
+                        if block.hit(self): # Game 인스턴스 전달
+                            # 블록이 파괴되면 점수 추가
+                            self.add_score(block.get_score_value())
+                    else:
+                        # 투명 블록이 파괴된 경우 점수 추가 (bounce_block에서 이미 hit 처리됨)
+                        if not block.active:
+                            self.add_score(block.get_score_value())
                         
             # 보너스 볼 수집
             for bonus in self.bonus_balls:

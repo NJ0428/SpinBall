@@ -107,6 +107,25 @@ MENU_FONT_SIZE = 32
 MENU_ITEM_HEIGHT = 60
 MENU_START_Y = 300
 
+# 특수 블록 타입
+BLOCK_TYPE_NORMAL = 0
+BLOCK_TYPE_BOMB = 1
+BLOCK_TYPE_SHIELD = 2
+BLOCK_TYPE_GHOST = 3
+
+# 특수 블록 색상
+BOMB_BLOCK_COLOR = (255, 69, 0)  # 빨간 오렌지 (폭탄)
+SHIELD_BLOCK_COLOR = (70, 130, 180)  # 스틸 블루 (방어막)
+GHOST_BLOCK_COLOR = (147, 112, 219)  # 연보라 (투명)
+
+# 특수 블록 생성 확률
+BOMB_BLOCK_CHANCE = 0.08  # 8% 확률
+SHIELD_BLOCK_CHANCE = 0.06  # 6% 확률
+GHOST_BLOCK_CHANCE = 0.05  # 5% 확률
+
+# 투명 블록 관통 확률
+GHOST_BLOCK_PASS_CHANCE = 0.4  # 40% 확률로 공이 통과
+
 # 상점 아이템 목록
 SHOP_ITEMS = [
     {"name": "파워볼", "price": 100, "desc": "벽돌을 2배로 깸", "key": 1},
