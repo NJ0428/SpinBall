@@ -7,6 +7,77 @@ from database import db_manager
 from shop import Shop
 
 
+class Particle:
+    def __init__(self, x, y, dx, dy, color, life, size=2):
+        self.x = x
+        self.y = y
+        self.dx = dx
+        self.dy = dy
+        self.color = color
+        self.life = life
+        self.max_life = life
+        self.size = size
+        self.active = True
+        
+    def update(self):
+        if not self.active:
+            return
+            
+        self.x += self.dx
+        self.y += self.dy
+        self.life -= 1
+        
+        # 중력 효과 (폭발 파티클용)
+        self.dy += 0.2
+        
+        # 공기 저항
+        self.dx *= 0.98
+        self.dy *= 0.98
+        
+        if self.life <= 0:
+            self.active = False
+    
+    def draw(self, screen):
+        if not self.active:
+            return
+            
+        # 생명력에 따른 알파값 계산
+        alpha = int(255 * (self.life / self.max_life))
+        if alpha <= 0:
+            return
+            
+        # 파티클 크기도 생명력에 따라 변화
+        current_size = max(1, int(self.size * (self.life / self.max_life)))
+        
+        # 반투명 파티클 그리기
+        particle_surface = pygame.Surface((current_size * 2, current_size * 2), pygame.SRCALPHA)
+        particle_color = (*self.color, alpha)
+        pygame.draw.circle(particle_surface, particle_color, (current_size, current_size), current_size)
+        screen.blit(particle_surface, (int(self.x - current_size), int(self.y - current_size)))
+
+
+class TrailPoint:
+    def __init__(self, x, y, alpha=255):
+        self.x = x
+        self.y = y
+        self.alpha = alpha
+        self.active = True
+    
+    def update(self):
+        self.alpha -= TRAIL_FADE_SPEED
+        if self.alpha <= 0:
+            self.active = False
+    
+    def draw(self, screen, color, radius):
+        if not self.active or self.alpha <= 0:
+            return
+            
+        trail_surface = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+        trail_color = (*color, max(0, self.alpha))
+        pygame.draw.circle(trail_surface, trail_color, (radius, radius), radius)
+        screen.blit(trail_surface, (int(self.x - radius), int(self.y - radius)))
+
+
 class Ball:
     def __init__(self, x, y, dx, dy, game=None):
         self.x = x
@@ -16,15 +87,28 @@ class Ball:
         self.radius = BALL_RADIUS
         self.active = True
         self.game = game  # Game 인스턴스 참조
+        self.trail_points = []  # 궤적 포인트들
         
     def move(self):
         if not self.active:
             return
         
+        # 현재 위치를 트레일에 추가
+        self.trail_points.append(TrailPoint(self.x, self.y))
+        
+        # 트레일 길이 제한
+        if len(self.trail_points) > TRAIL_LENGTH:
+            self.trail_points.pop(0)
+        
         # 스피드볼 효과 적용
         speed_multiplier = 2 if self.game and self.game.active_powerups.get(2, False) else 1
         self.x += self.dx * speed_multiplier
         self.y += self.dy * speed_multiplier
+        
+        # 트레일 포인트들 업데이트
+        self.trail_points = [point for point in self.trail_points if point.active]
+        for point in self.trail_points:
+            point.update()
         
         # 좌우 벽 충돌
         if self.x - self.radius <= 0 or self.x + self.radius >= SCREEN_WIDTH:
@@ -93,6 +177,11 @@ class Ball:
     
     def draw(self, screen):
         if self.active:
+            # 트레일 그리기 (공보다 먼저 그려서 뒤에 표시)
+            for i, point in enumerate(self.trail_points):
+                trail_radius = max(1, int(self.radius * 0.3 * (i + 1) / len(self.trail_points)))
+                point.draw(screen, NEON_CYAN, trail_radius)
+            
             # 네온 글로우 효과
             for i in range(3, 0, -1):
                 glow_color = (*NEON_CYAN, 60 // i)
@@ -145,12 +234,36 @@ class Block:
         if self.health <= 0:
             self.active = False
             
+            # 블록 파괴 시 폭발 파티클 생성
+            if game:
+                self.create_explosion_particles(game)
+            
             # 폭탄 블록: 주변 블록도 파괴
             if self.block_type == BLOCK_TYPE_BOMB and game:
                 self.explode_nearby_blocks(game)
             
             return True  # 블록이 파괴됨
         return False
+    
+    def create_explosion_particles(self, game):
+        """블록 파괴 시 폭발 파티클 생성"""
+        center_x = self.x + BLOCK_SIZE // 2
+        center_y = self.y + BLOCK_SIZE // 2
+        block_color = self.get_color()
+        
+        for _ in range(EXPLOSION_PARTICLE_COUNT):
+            # 랜덤한 방향과 속도
+            angle = random.uniform(0, 2 * math.pi)
+            speed = random.uniform(2, EXPLOSION_PARTICLE_SPEED)
+            dx = math.cos(angle) * speed
+            dy = math.sin(angle) * speed
+            
+            # 파티클 크기와 수명 랜덤화
+            size = random.randint(2, 4)
+            life = random.randint(EXPLOSION_PARTICLE_LIFE // 2, EXPLOSION_PARTICLE_LIFE)
+            
+            particle = Particle(center_x, center_y, dx, dy, block_color, life, size)
+            game.particles.append(particle)
     
     def explode_nearby_blocks(self, game):
         """폭탄 블록 폭발 시 주변 블록들 파괴"""
@@ -166,8 +279,9 @@ class Block:
                 # 폭발 범위 내의 블록들 파괴
                 if distance <= explosion_range:
                     block.active = False
-                    # 폭발로 파괴된 블록도 점수 추가
-                    game.add_score(block.get_score_value())
+                    # 폭발로 파괴된 블록도 콤보 시스템과 함께 점수 추가
+                    block_color = block.get_color()
+                    game.add_score(block.get_score_value(), block_color)
     
     def get_score_value(self):
         """블록이 주는 점수 값 (체력에 비례)"""
@@ -329,6 +443,27 @@ class BonusBall:
         self.y = y
         self.radius = BONUS_BALL_RADIUS
         self.active = True
+        self.collected = False  # 수집 상태 플래그
+    
+    def create_sparkle_particles(self, game):
+        """보너스 볼 수집 시 반짝임 파티클 생성"""
+        for _ in range(SPARKLE_PARTICLE_COUNT):
+            # 랜덤한 방향과 속도
+            angle = random.uniform(0, 2 * math.pi)
+            speed = random.uniform(1, SPARKLE_PARTICLE_SPEED)
+            dx = math.cos(angle) * speed
+            dy = math.sin(angle) * speed - 2  # 위쪽으로 약간 편향
+            
+            # 반짝임 색상 (노란색, 흰색, 초록색 중 랜덤)
+            colors = [NEON_YELLOW, WHITE, NEON_GREEN]
+            color = random.choice(colors)
+            
+            # 파티클 크기와 수명
+            size = random.randint(1, 3)
+            life = random.randint(SPARKLE_PARTICLE_LIFE // 2, SPARKLE_PARTICLE_LIFE)
+            
+            particle = Particle(self.x, self.y, dx, dy, color, life, size)
+            game.particles.append(particle)
         
     def move_down(self):
         """블록과 함께 아래로 이동"""
@@ -470,6 +605,17 @@ class Game:
         self.shop = Shop(self.font, self.score)
         self.active_powerups = {1: False, 2: False, 3: False}  # 파워볼, 스피드볼, 매그넘볼
         
+        # 콤보 시스템
+        self.combo_count = 0
+        self.combo_multiplier = 1.0
+        self.last_block_color = None
+        self.last_combo_time = 0
+        self.combo_display_time = 0
+        self.combo_score_gained = 0
+        
+        # 파티클 시스템
+        self.particles = []
+        
     def safe_render_text(self, font, text, color, fallback_font=None):
         """안전한 텍스트 렌더링 (한글 깨짐 방지)"""
         try:
@@ -554,11 +700,56 @@ class Game:
         self.input_active = False
         self.name_entered = False
         self.score_saved = False
+        
+        # 콤보 시스템 초기화
+        self.combo_count = 0
+        self.combo_multiplier = 1.0
+        self.last_block_color = None
+        self.last_combo_time = 0
+        self.combo_display_time = 0
+        self.combo_score_gained = 0
+        
+        # 파티클 시스템 초기화
+        self.particles = []
+        
         self.generate_blocks()
     
-    def add_score(self, points):
-        """점수 추가"""
-        self.score += points
+    def add_score(self, points, block_color=None):
+        """점수 추가 (콤보 시스템 포함)"""
+        current_time = pygame.time.get_ticks()
+        
+        # 콤보 시스템 처리
+        if block_color:
+            # 같은 색깔 블록이고 시간 제한 내인 경우
+            if (self.last_block_color == block_color and 
+                current_time - self.last_combo_time <= COMBO_TIME_WINDOW):
+                self.combo_count += 1
+            else:
+                # 새로운 콤보 시작 또는 콤보 끊김
+                if self.last_block_color == block_color:
+                    self.combo_count = 2  # 같은 색깔 2개부터 콤보 시작
+                else:
+                    self.combo_count = 1  # 다른 색깔이면 콤보 리셋
+            
+            # 콤보 배율 계산
+            if self.combo_count >= MIN_COMBO_COUNT:
+                self.combo_multiplier = min(
+                    COMBO_MULTIPLIER_BASE + (self.combo_count - MIN_COMBO_COUNT) * COMBO_MULTIPLIER_INCREMENT,
+                    MAX_COMBO_MULTIPLIER
+                )
+            else:
+                self.combo_multiplier = 1.0
+            
+            # 콤보 정보 업데이트
+            self.last_block_color = block_color
+            self.last_combo_time = current_time
+            self.combo_display_time = current_time + 2000  # 2초간 콤보 표시
+        
+        # 콤보 적용된 점수 계산
+        final_points = int(points * self.combo_multiplier)
+        self.combo_score_gained = final_points - points  # 콤보로 얻은 추가 점수
+        
+        self.score += final_points
     
     def save_game_score(self):
         """게임 점수를 데이터베이스에 저장"""
@@ -781,16 +972,21 @@ class Game:
                     # 투명 블록이 아닌 경우에만 hit 처리 (투명 블록은 bounce_block에서 처리됨)
                     if block.block_type != BLOCK_TYPE_GHOST:
                         if block.hit(self): # Game 인스턴스 전달
-                            # 블록이 파괴되면 점수 추가
-                            self.add_score(block.get_score_value())
+                            # 블록이 파괴되면 콤보 시스템과 함께 점수 추가
+                            block_color = block.get_color()
+                            self.add_score(block.get_score_value(), block_color)
                     else:
                         # 투명 블록이 파괴된 경우 점수 추가 (bounce_block에서 이미 hit 처리됨)
                         if not block.active:
-                            self.add_score(block.get_score_value())
+                            block_color = block.get_color()
+                            self.add_score(block.get_score_value(), block_color)
                         
             # 보너스 볼 수집
             for bonus in self.bonus_balls:
                 if ball.collect_bonus(bonus):
+                    if not bonus.collected:  # 중복 수집 방지
+                        bonus.collected = True
+                        bonus.create_sparkle_particles(self)  # 반짝임 효과 생성
                     bonus.active = False
                     self.bonus_balls_collected += 1  # 라운드 종료 후 적용
                     
@@ -848,6 +1044,12 @@ class Game:
             for block in self.blocks:
                 block.active = False
             self.active_powerups[3] = False
+        
+        # 콤보 시스템 업데이트
+        self.update_combo_system()
+        
+        # 파티클 시스템 업데이트
+        self.update_particles()
         # 파워볼/스피드볼 효과 적용은 Ball/Block 처리에서 반영 예정
         # 라운드 종료 후 상점 오픈
         if self.round_in_progress and self.balls_launched >= self.ball_count and len(self.balls) == 0:
@@ -884,6 +1086,69 @@ class Game:
         # 라운드 시작 시 파워업 초기화
         self.active_powerups = {1: False, 2: False, 3: False}
         self.shop.owned_items = []
+    
+    def update_combo_system(self):
+        """콤보 시스템 업데이트"""
+        current_time = pygame.time.get_ticks()
+        
+        # 콤보 시간 초과 시 리셋
+        if current_time - self.last_combo_time > COMBO_TIME_WINDOW:
+            if self.combo_count >= MIN_COMBO_COUNT:
+                # 콤보가 끊어질 때 잠시 표시
+                self.combo_display_time = current_time + 1000
+            self.combo_count = 0
+            self.combo_multiplier = 1.0
+            self.last_block_color = None
+    
+    def update_particles(self):
+        """파티클 시스템 업데이트"""
+        # 파티클들 업데이트
+        for particle in self.particles:
+            particle.update()
+        
+        # 비활성화된 파티클들 제거
+        self.particles = [particle for particle in self.particles if particle.active]
+    
+    def draw_combo_ui(self, screen):
+        """콤보 UI 표시"""
+        current_time = pygame.time.get_ticks()
+        
+        # 콤보가 활성화되어 있거나 표시 시간이 남아있는 경우
+        if (self.combo_count >= MIN_COMBO_COUNT or 
+            current_time < self.combo_display_time):
+            
+            # 콤보 텍스트 위치 (화면 중앙 상단)
+            combo_x = SCREEN_WIDTH // 2
+            combo_y = 150
+            
+            # 콤보 카운트 표시
+            if self.combo_count >= MIN_COMBO_COUNT:
+                combo_text = f"{self.combo_count}x COMBO!"
+                multiplier_text = f"x{self.combo_multiplier:.1f}"
+                
+                # 글로우 효과
+                for i in range(3, 0, -1):
+                    glow_surface = pygame.Surface((200, 60), pygame.SRCALPHA)
+                    glow_color = (*COMBO_GLOW_COLOR[:3], COMBO_GLOW_COLOR[3] // i)
+                    pygame.draw.rect(glow_surface, glow_color, (0, 0, 200, 60), border_radius=15)
+                    screen.blit(glow_surface, (combo_x - 100, combo_y - 30))
+                
+                # 콤보 텍스트
+                combo_surface = self.safe_render_text(self.large_font, combo_text, COMBO_TEXT_COLOR)
+                combo_rect = combo_surface.get_rect(center=(combo_x, combo_y - 10))
+                screen.blit(combo_surface, combo_rect)
+                
+                # 배율 텍스트
+                multiplier_surface = self.safe_render_text(self.font, multiplier_text, NEON_GREEN)
+                multiplier_rect = multiplier_surface.get_rect(center=(combo_x, combo_y + 15))
+                screen.blit(multiplier_surface, multiplier_rect)
+                
+                # 추가 점수 표시
+                if self.combo_score_gained > 0:
+                    bonus_text = f"+{self.combo_score_gained}"
+                    bonus_surface = self.safe_render_text(self.small_font, bonus_text, NEON_CYAN)
+                    bonus_rect = bonus_surface.get_rect(center=(combo_x + 80, combo_y))
+                    screen.blit(bonus_surface, bonus_rect)
         
     def draw_aim_line(self):
         # 게임 오버가 아니고 라운드가 진행 중이 아닐 때만 조준선 표시
@@ -1114,9 +1379,16 @@ class Game:
         # 공 그리기
         for ball in self.balls:
             ball.draw(self.screen)
+        
+        # 파티클 그리기
+        for particle in self.particles:
+            particle.draw(self.screen)
             
         # 조준선 그리기
         self.draw_aim_line()
+        
+        # 콤보 UI 그리기
+        self.draw_combo_ui(self.screen)
         
         # 게임 오버 메시지 (모던 스타일)
         if self.game_over:

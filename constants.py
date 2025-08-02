@@ -126,6 +126,29 @@ GHOST_BLOCK_CHANCE = 0.05  # 5% 확률
 # 투명 블록 관통 확률
 GHOST_BLOCK_PASS_CHANCE = 0.4  # 40% 확률로 공이 통과
 
+# 콤보 시스템 설정
+COMBO_TIME_WINDOW = 2000  # 콤보 유지 시간 (밀리세컨드)
+COMBO_MULTIPLIER_BASE = 1.5  # 기본 콤보 배율
+COMBO_MULTIPLIER_INCREMENT = 0.5  # 콤보당 추가 배율
+MAX_COMBO_MULTIPLIER = 5.0  # 최대 콤보 배율
+MIN_COMBO_COUNT = 2  # 콤보 시작 최소 개수
+
+# 콤보 UI 색상
+COMBO_TEXT_COLOR = NEON_YELLOW
+COMBO_GLOW_COLOR = (255, 255, 0, 100)
+
+# 파티클 효과 설정
+EXPLOSION_PARTICLE_COUNT = 15  # 폭발 파티클 개수
+EXPLOSION_PARTICLE_SPEED = 8   # 폭발 파티클 속도
+EXPLOSION_PARTICLE_LIFE = 30   # 폭발 파티클 수명 (프레임)
+
+TRAIL_LENGTH = 8               # 공 궤적 길이
+TRAIL_FADE_SPEED = 20          # 궤적 페이드 속도
+
+SPARKLE_PARTICLE_COUNT = 8     # 반짝임 파티클 개수
+SPARKLE_PARTICLE_SPEED = 4     # 반짝임 파티클 속도
+SPARKLE_PARTICLE_LIFE = 20     # 반짝임 파티클 수명
+
 # 상점 아이템 목록
 SHOP_ITEMS = [
     {"name": "파워볼", "price": 100, "desc": "벽돌을 2배로 깸", "key": 1},
