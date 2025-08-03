@@ -5,6 +5,305 @@ from constants import *
 from language import get_text, set_language, get_current_language, language_manager
 from database import db_manager
 from shop import Shop
+import datetime
+import json
+import time
+import os
+
+
+class ReplayManager:
+    def __init__(self):
+        self.recording = False
+        self.playing = False
+        self.actions = []
+        self.current_action_index = 0
+        self.start_time = 0
+        
+    def start_recording(self):
+        """리플레이 기록 시작"""
+        self.recording = True
+        self.actions = []
+        self.start_time = time.time()
+        
+    def stop_recording(self):
+        """리플레이 기록 중지"""
+        self.recording = False
+        
+    def record_action(self, action_type, data, timestamp=None):
+        """액션 기록"""
+        if not self.recording or len(self.actions) >= MAX_REPLAY_ACTIONS:
+            return
+            
+        if timestamp is None:
+            timestamp = time.time() - self.start_time
+            
+        self.actions.append({
+            'type': action_type,
+            'data': data,
+            'timestamp': timestamp
+        })
+    
+    def save_replay(self, filename, score, round_num):
+        """리플레이 파일 저장"""
+        if not self.actions:
+            return False
+        
+        # replays 폴더 생성
+        if not os.path.exists('replays'):
+            os.makedirs('replays')
+            
+        replay_data = {
+            'version': '1.0',
+            'score': score,
+            'round': round_num,
+            'duration': time.time() - self.start_time,
+            'actions': self.actions,
+            'timestamp': datetime.datetime.now().isoformat()
+        }
+        
+        try:
+            with open(f"replays/{filename}.json", 'w') as f:
+                json.dump(replay_data, f)
+            return True
+        except:
+            return False
+    
+    def load_replay(self, filename):
+        """리플레이 파일 로드"""
+        try:
+            with open(f"replays/{filename}.json", 'r') as f:
+                replay_data = json.load(f)
+            self.actions = replay_data['actions']
+            self.current_action_index = 0
+            return replay_data
+        except:
+            return None
+    
+    def start_playback(self):
+        """리플레이 재생 시작"""
+        self.playing = True
+        self.current_action_index = 0
+        self.start_time = time.time()
+    
+    def stop_playback(self):
+        """리플레이 재생 중지"""
+        self.playing = False
+        
+    def get_next_action(self):
+        """다음 액션 가져오기"""
+        if not self.playing or self.current_action_index >= len(self.actions):
+            return None
+            
+        current_time = time.time() - self.start_time
+        action = self.actions[self.current_action_index]
+        
+        if current_time >= action['timestamp']:
+            self.current_action_index += 1
+            return action
+        return None
+
+
+class StatisticsManager:
+    def __init__(self):
+        self.stats = {
+            'total_play_time': 0,
+            'games_played': 0,
+            'total_score': 0,
+            'highest_score': 0,
+            'highest_round': 0,
+            'blocks_destroyed': {
+                'normal': 0,
+                'bomb': 0,
+                'shield': 0,
+                'ghost': 0
+            },
+            'total_blocks_destroyed': 0,
+            'combos_achieved': 0,
+            'highest_combo': 0,
+            'powerups_used': 0,
+            'bonus_balls_collected': 0
+        }
+        self.session_start_time = time.time()
+        self.load_stats()
+    
+    def load_stats(self):
+        """통계 파일 로드"""
+        try:
+            with open('stats.json', 'r') as f:
+                saved_stats = json.load(f)
+                self.stats.update(saved_stats)
+        except:
+            pass  # 파일이 없으면 기본값 사용
+    
+    def save_stats(self):
+        """통계 파일 저장"""
+        try:
+            with open('stats.json', 'w') as f:
+                json.dump(self.stats, f)
+        except:
+            pass
+    
+    def update_game_end(self, score, round_num, blocks_destroyed_by_type, combos, highest_combo, powerups_used, bonus_collected):
+        """게임 종료 시 통계 업데이트"""
+        self.stats['games_played'] += 1
+        self.stats['total_score'] += score
+        self.stats['highest_score'] = max(self.stats['highest_score'], score)
+        self.stats['highest_round'] = max(self.stats['highest_round'], round_num)
+        
+        # 블록 파괴 통계
+        for block_type, count in blocks_destroyed_by_type.items():
+            if block_type in self.stats['blocks_destroyed']:
+                self.stats['blocks_destroyed'][block_type] += count
+                self.stats['total_blocks_destroyed'] += count
+        
+        # 콤보 통계
+        self.stats['combos_achieved'] += combos
+        self.stats['highest_combo'] = max(self.stats['highest_combo'], highest_combo)
+        
+        # 기타 통계
+        self.stats['powerups_used'] += powerups_used
+        self.stats['bonus_balls_collected'] += bonus_collected
+        
+        self.save_stats()
+    
+    def update_play_time(self):
+        """플레이 시간 업데이트"""
+        current_time = time.time()
+        self.stats['total_play_time'] += current_time - self.session_start_time
+        self.session_start_time = current_time
+    
+    def get_average_score(self):
+        """평균 점수 계산"""
+        if self.stats['games_played'] == 0:
+            return 0
+        return self.stats['total_score'] // self.stats['games_played']
+    
+    def get_play_time_formatted(self):
+        """플레이 시간을 시:분:초 형식으로 반환"""
+        total_seconds = int(self.stats['total_play_time'])
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        seconds = total_seconds % 60
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+class ThemeManager:
+    def __init__(self):
+        self.current_theme = THEME_DARK
+        self.manual_theme = None  # 수동으로 설정된 테마
+        
+    def get_seasonal_theme(self):
+        """현재 날짜에 따른 계절 테마 반환"""
+        now = datetime.datetime.now()
+        month = now.month
+        day = now.day
+        
+        # 크리스마스 시즌 (12월 1일 ~ 1월 7일)
+        if month == 12 or (month == 1 and day <= 7):
+            return THEME_CHRISTMAS
+        # 할로윈 시즌 (10월)
+        elif month == 10:
+            return THEME_HALLOWEEN
+        # 봄 (3월 ~ 5월)
+        elif 3 <= month <= 5:
+            return THEME_SPRING
+        # 여름 (6월 ~ 8월)
+        elif 6 <= month <= 8:
+            return THEME_SUMMER
+        # 기본 다크 테마
+        else:
+            return THEME_DARK
+    
+    def get_round_theme(self, round_num):
+        """라운드에 따른 테마 반환"""
+        # 수동 테마가 설정되어 있으면 우선 적용
+        if self.manual_theme:
+            return self.manual_theme
+            
+        # 라운드별 테마 변화
+        for threshold in sorted(ROUND_THEME_CHANGES.keys(), reverse=True):
+            if round_num >= threshold:
+                return ROUND_THEME_CHANGES[threshold]
+        
+        # 기본적으로 계절 테마 적용
+        return self.get_seasonal_theme()
+    
+    def set_manual_theme(self, theme):
+        """수동으로 테마 설정"""
+        self.manual_theme = theme
+    
+    def clear_manual_theme(self):
+        """수동 테마 설정 해제"""
+        self.manual_theme = None
+    
+    def get_theme_colors(self, theme):
+        """테마에 따른 색상 팔레트 반환"""
+        if theme == THEME_LIGHT:
+            return {
+                'background': LIGHT_BLACK,
+                'surface': LIGHT_SURFACE,
+                'darker_surface': LIGHT_DARKER_SURFACE,
+                'text': LIGHT_TEXT,
+                'text_secondary': LIGHT_TEXT_SECONDARY,
+                'accent': (0, 123, 255),
+                'ball_color': (0, 123, 255),
+                'ball_trail': (0, 123, 255)
+            }
+        elif theme == THEME_CHRISTMAS:
+            return {
+                'background': CHRISTMAS_DARK,
+                'surface': (40, 40, 50),
+                'darker_surface': (30, 30, 40),
+                'text': CHRISTMAS_WHITE,
+                'text_secondary': (200, 200, 200),
+                'accent': CHRISTMAS_RED,
+                'ball_color': CHRISTMAS_GOLD,
+                'ball_trail': CHRISTMAS_GOLD
+            }
+        elif theme == THEME_HALLOWEEN:
+            return {
+                'background': HALLOWEEN_BLACK,
+                'surface': (40, 20, 40),
+                'darker_surface': (30, 15, 30),
+                'text': HALLOWEEN_ORANGE,
+                'text_secondary': HALLOWEEN_GRAY,
+                'accent': HALLOWEEN_PURPLE,
+                'ball_color': HALLOWEEN_ORANGE,
+                'ball_trail': HALLOWEEN_ORANGE
+            }
+        elif theme == THEME_SPRING:
+            return {
+                'background': SPRING_WHITE,
+                'surface': (240, 248, 240),
+                'darker_surface': (230, 240, 230),
+                'text': (60, 120, 60),
+                'text_secondary': (100, 150, 100),
+                'accent': SPRING_PINK,
+                'ball_color': SPRING_GREEN,
+                'ball_trail': SPRING_GREEN
+            }
+        elif theme == THEME_SUMMER:
+            return {
+                'background': (240, 248, 255),
+                'surface': (230, 240, 250),
+                'darker_surface': (220, 230, 240),
+                'text': (30, 60, 120),
+                'text_secondary': (70, 100, 150),
+                'accent': SUMMER_BLUE,
+                'ball_color': SUMMER_CYAN,
+                'ball_trail': SUMMER_CYAN
+            }
+        else:  # THEME_DARK (기본)
+            return {
+                'background': BLACK,
+                'surface': DARK_SURFACE,
+                'darker_surface': DARKER_SURFACE,
+                'text': WHITE,
+                'text_secondary': TEXT_SECONDARY,
+                'accent': NEON_CYAN,
+                'ball_color': NEON_CYAN,
+                'ball_trail': NEON_CYAN
+            }
 
 
 class Particle:
@@ -177,28 +476,34 @@ class Ball:
     
     def draw(self, screen):
         if self.active:
+            # 테마에 따른 공 색상 가져오기
+            theme_colors = self.game.theme_manager.get_theme_colors(self.game.current_theme) if self.game else None
+            ball_color = theme_colors['ball_color'] if theme_colors else NEON_CYAN
+            trail_color = theme_colors['ball_trail'] if theme_colors else NEON_CYAN
+            
             # 트레일 그리기 (공보다 먼저 그려서 뒤에 표시)
             for i, point in enumerate(self.trail_points):
                 trail_radius = max(1, int(self.radius * 0.3 * (i + 1) / len(self.trail_points)))
-                point.draw(screen, NEON_CYAN, trail_radius)
+                point.draw(screen, trail_color, trail_radius)
             
             # 네온 글로우 효과
             for i in range(3, 0, -1):
-                glow_color = (*NEON_CYAN, 60 // i)
+                glow_color = (*ball_color, 60 // i)
                 glow_surface = pygame.Surface((self.radius * 2 + i * 4, self.radius * 2 + i * 4), pygame.SRCALPHA)
                 pygame.draw.circle(glow_surface, glow_color, 
                                  (self.radius + i * 2, self.radius + i * 2), self.radius + i)
                 screen.blit(glow_surface, (int(self.x - self.radius - i * 2), int(self.y - self.radius - i * 2)))
             
             # 메인 공 (그라데이션 효과)
-            pygame.draw.circle(screen, NEON_CYAN, (int(self.x), int(self.y)), self.radius)
+            pygame.draw.circle(screen, ball_color, (int(self.x), int(self.y)), self.radius)
             
             # 하이라이트 (3D 효과)
+            highlight_color = theme_colors['text'] if theme_colors else WHITE
             highlight_pos = (int(self.x - self.radius//3), int(self.y - self.radius//3))
-            pygame.draw.circle(screen, WHITE, highlight_pos, self.radius//3)
+            pygame.draw.circle(screen, highlight_color, highlight_pos, self.radius//3)
             
             # 외곽선
-            pygame.draw.circle(screen, WHITE, (int(self.x), int(self.y)), self.radius, 2)
+            pygame.draw.circle(screen, highlight_color, (int(self.x), int(self.y)), self.radius, 2)
 
 
 class Block:
@@ -250,6 +555,16 @@ class Block:
         center_x = self.x + BLOCK_SIZE // 2
         center_y = self.y + BLOCK_SIZE // 2
         block_color = self.get_color()
+        
+        # 블록 타입별 통계 업데이트
+        if self.block_type == BLOCK_TYPE_BOMB:
+            game.blocks_destroyed_by_type['bomb'] += 1
+        elif self.block_type == BLOCK_TYPE_SHIELD:
+            game.blocks_destroyed_by_type['shield'] += 1
+        elif self.block_type == BLOCK_TYPE_GHOST:
+            game.blocks_destroyed_by_type['ghost'] += 1
+        else:
+            game.blocks_destroyed_by_type['normal'] += 1
         
         for _ in range(EXPLOSION_PARTICLE_COUNT):
             # 랜덤한 방향과 속도
@@ -580,7 +895,8 @@ class Game:
             "ball_speed": 11,
             "sound_enabled": True,
             "difficulty": "보통",
-            "language": "ko"
+            "language": "ko",
+            "theme": "auto"  # auto, dark, light, christmas, halloween, spring, summer
         }
         
         # 언어 설정 초기화
@@ -595,15 +911,10 @@ class Game:
         self.name_entered = False
         self.score_saved = False
         
-        self.reset_game()
-        
         # 게임 상태 관리
         self.game_state = GAME_STATE_TITLE
         self.selected_menu = 0  # 선택된 메뉴 항목
         self.settings_menu_selected = 0  # 설정 메뉴에서 선택된 항목
-        
-        self.shop = Shop(self.font, self.score)
-        self.active_powerups = {1: False, 2: False, 3: False}  # 파워볼, 스피드볼, 매그넘볼
         
         # 콤보 시스템
         self.combo_count = 0
@@ -615,6 +926,29 @@ class Game:
         
         # 파티클 시스템
         self.particles = []
+        
+        # 테마 시스템
+        self.theme_manager = ThemeManager()
+        self.current_theme = self.theme_manager.get_seasonal_theme()
+        
+        # 일시정지 시스템
+        self.paused = False
+        self.pause_menu_selected = 0
+        
+        # 리플레이 시스템
+        self.replay_manager = ReplayManager()
+        
+        # 통계 시스템
+        self.stats_manager = StatisticsManager()
+        self.blocks_destroyed_by_type = {'normal': 0, 'bomb': 0, 'shield': 0, 'ghost': 0}
+        self.combos_this_game = 0
+        self.highest_combo_this_game = 0
+        self.powerups_used_this_game = 0
+        
+        self.reset_game()
+        
+        self.shop = Shop(self.font, self.score)
+        self.active_powerups = {1: False, 2: False, 3: False}  # 파워볼, 스피드볼, 매그넘볼
         
     def safe_render_text(self, font, text, color, fallback_font=None):
         """안전한 텍스트 렌더링 (한글 깨짐 방지)"""
@@ -643,6 +977,7 @@ class Game:
             get_text('menu_start'),
             get_text('menu_settings'), 
             get_text('menu_ranking'),
+            "Statistics",
             get_text('menu_quit')
         ]
         
@@ -676,6 +1011,32 @@ class Game:
                 current_idx = (current_idx - 1) % len(languages)
             self.settings["language"] = languages[current_idx]
             set_language(self.settings["language"])
+        elif self.settings_menu_selected == 4:  # 테마
+            themes = ["auto", "dark", "light", "christmas", "halloween", "spring", "summer"]
+            current_idx = 0
+            if self.settings["theme"] in themes:
+                current_idx = themes.index(self.settings["theme"])
+            if increase:
+                current_idx = (current_idx + 1) % len(themes)
+            else:
+                current_idx = (current_idx - 1) % len(themes)
+            self.settings["theme"] = themes[current_idx]
+            
+            # 테마 적용
+            if self.settings["theme"] == "auto":
+                self.theme_manager.clear_manual_theme()
+                self.current_theme = self.theme_manager.get_round_theme(self.round_num)
+            else:
+                theme_map = {
+                    "dark": THEME_DARK,
+                    "light": THEME_LIGHT,
+                    "christmas": THEME_CHRISTMAS,
+                    "halloween": THEME_HALLOWEEN,
+                    "spring": THEME_SPRING,
+                    "summer": THEME_SUMMER
+                }
+                self.theme_manager.set_manual_theme(theme_map[self.settings["theme"]])
+                self.current_theme = theme_map[self.settings["theme"]]
         
     def reset_game(self):
         self.balls = []
@@ -712,6 +1073,19 @@ class Game:
         # 파티클 시스템 초기화
         self.particles = []
         
+        # 테마 초기화
+        self.current_theme = self.theme_manager.get_seasonal_theme()
+        
+        # 통계 초기화
+        self.blocks_destroyed_by_type = {'normal': 0, 'bomb': 0, 'shield': 0, 'ghost': 0}
+        self.combos_this_game = 0
+        self.highest_combo_this_game = 0
+        self.powerups_used_this_game = 0
+        
+        # 리플레이 기록 시작
+        if not self.replay_manager.playing:
+            self.replay_manager.start_recording()
+        
         self.generate_blocks()
     
     def add_score(self, points, block_color=None):
@@ -737,6 +1111,11 @@ class Game:
                     COMBO_MULTIPLIER_BASE + (self.combo_count - MIN_COMBO_COUNT) * COMBO_MULTIPLIER_INCREMENT,
                     MAX_COMBO_MULTIPLIER
                 )
+                # 콤보 통계 업데이트
+                if self.combo_count > self.highest_combo_this_game:
+                    self.highest_combo_this_game = self.combo_count
+                if self.combo_count == MIN_COMBO_COUNT:
+                    self.combos_this_game += 1
             else:
                 self.combo_multiplier = 1.0
             
@@ -819,7 +1198,14 @@ class Game:
                 if self.game_state == GAME_STATE_TITLE:
                     self.handle_title_input(event.key)
                 elif self.game_state == GAME_STATE_GAME:
-                    if self.game_over and not self.name_entered and not self.score_saved:
+                    if event.key == pygame.K_ESCAPE and not self.game_over:
+                        # 일시정지 토글
+                        if self.paused:
+                            self.paused = False
+                        else:
+                            self.paused = True
+                            self.pause_menu_selected = 0
+                    elif self.game_over and not self.name_entered and not self.score_saved:
                         # 게임 오버 시 이름 입력 처리
                         if event.key == pygame.K_RETURN:
                             if self.player_name.strip():
@@ -837,19 +1223,44 @@ class Game:
                                 self.player_name += event.unicode
                         self.input_active = True
                     elif event.key == pygame.K_r and self.game_over:
+                        # 게임 종료 시 통계 업데이트
+                        self.stats_manager.update_game_end(
+                            self.score, self.round_num, self.blocks_destroyed_by_type,
+                            self.combos_this_game, self.highest_combo_this_game,
+                            self.powerups_used_this_game, self.bonus_balls_collected
+                        )
+                        # 높은 점수 시 리플레이 저장
+                        if self.score >= REPLAY_SAVE_THRESHOLD:
+                            self.replay_manager.save_replay(f"replay_{int(time.time())}", self.score, self.round_num)
                         self.reset_game()
-                    elif event.key == pygame.K_ESCAPE and not self.game_over:
-                        self.game_state = GAME_STATE_TITLE
+                    elif self.paused:
+                        # 일시정지 메뉴 처리
+                        if event.key == pygame.K_UP:
+                            self.pause_menu_selected = (self.pause_menu_selected - 1) % 3
+                        elif event.key == pygame.K_DOWN:
+                            self.pause_menu_selected = (self.pause_menu_selected + 1) % 3
+                        elif event.key == pygame.K_RETURN:
+                            if self.pause_menu_selected == 0:  # 계속하기
+                                self.paused = False
+                            elif self.pause_menu_selected == 1:  # 설정
+                                self.game_state = GAME_STATE_SETTINGS
+                                self.paused = False
+                            elif self.pause_menu_selected == 2:  # 메인 메뉴
+                                self.game_state = GAME_STATE_TITLE
+                                self.paused = False
                 elif self.game_state == GAME_STATE_SETTINGS:
                     if event.key == pygame.K_ESCAPE:
                         self.game_state = GAME_STATE_TITLE
                     elif event.key == pygame.K_UP:
-                        self.settings_menu_selected = (self.settings_menu_selected - 1) % 4
+                        self.settings_menu_selected = (self.settings_menu_selected - 1) % 5
                     elif event.key == pygame.K_DOWN:
-                        self.settings_menu_selected = (self.settings_menu_selected + 1) % 4
+                        self.settings_menu_selected = (self.settings_menu_selected + 1) % 5
                     elif event.key == pygame.K_LEFT or event.key == pygame.K_RIGHT:
                         self.change_setting(event.key == pygame.K_RIGHT)
                 elif self.game_state == GAME_STATE_RANKING:
+                    if event.key == pygame.K_ESCAPE:
+                        self.game_state = GAME_STATE_TITLE
+                elif self.game_state == GAME_STATE_STATISTICS:
                     if event.key == pygame.K_ESCAPE:
                         self.game_state = GAME_STATE_TITLE
             elif event.type == pygame.MOUSEMOTION:
@@ -888,7 +1299,9 @@ class Game:
                                 self.game_state = GAME_STATE_SETTINGS
                             elif self.selected_menu == 2:  # 랭킹
                                 self.game_state = GAME_STATE_RANKING
-                            elif self.selected_menu == 3:  # 게임 종료
+                            elif self.selected_menu == 3:  # 통계
+                                self.game_state = GAME_STATE_STATISTICS
+                            elif self.selected_menu == 4:  # 게임 종료
                                 return False
                             break
                 elif self.game_state == GAME_STATE_GAME and not self.game_over and not self.round_in_progress:
@@ -914,7 +1327,9 @@ class Game:
                 self.game_state = GAME_STATE_SETTINGS
             elif self.selected_menu == 2:  # 랭킹
                 self.game_state = GAME_STATE_RANKING
-            elif self.selected_menu == 3:  # 게임 종료
+            elif self.selected_menu == 3:  # 통계
+                self.game_state = GAME_STATE_STATISTICS
+            elif self.selected_menu == 4:  # 게임 종료
                 return False
         
     def start_launch(self):
@@ -944,7 +1359,7 @@ class Game:
         if self.game_state != GAME_STATE_GAME:
             return
             
-        if self.game_over:
+        if self.game_over or self.paused:
             return
             
         current_time = pygame.time.get_ticks()
@@ -1080,6 +1495,9 @@ class Game:
         # 라운드 증가
         self.round_num += 1
         
+        # 테마 업데이트 (라운드에 따라)
+        self.current_theme = self.theme_manager.get_round_theme(self.round_num)
+        
         # 발사 위치를 마지막 공이 떨어진 위치로 설정 (화면 경계 제한)
         self.launch_x = max(20, min(SCREEN_WIDTH - 20, self.last_ball_x))
         
@@ -1108,6 +1526,95 @@ class Game:
         
         # 비활성화된 파티클들 제거
         self.particles = [particle for particle in self.particles if particle.active]
+    
+    def draw_themed_background(self, screen):
+        """테마에 따른 배경 그리기"""
+        if self.current_theme in THEME_BACKGROUNDS:
+            colors = THEME_BACKGROUNDS[self.current_theme]
+            
+            # 그라데이션 배경
+            for y in range(SCREEN_HEIGHT):
+                # 높이에 따른 색상 보간
+                ratio = y / SCREEN_HEIGHT
+                
+                if ratio < 0.5:
+                    # 상단 절반: 첫 번째와 두 번째 색상 보간
+                    t = ratio * 2
+                    color = [
+                        int(colors[0][i] * (1 - t) + colors[1][i] * t)
+                        for i in range(3)
+                    ]
+                else:
+                    # 하단 절반: 두 번째와 세 번째 색상 보간
+                    t = (ratio - 0.5) * 2
+                    color = [
+                        int(colors[1][i] * (1 - t) + colors[2][i] * t)
+                        for i in range(3)
+                    ]
+                
+                pygame.draw.line(screen, color, (0, y), (SCREEN_WIDTH, y))
+        else:
+            # 기본 다크 배경
+            screen.fill(BLACK)
+        
+        # 테마별 추가 장식 효과
+        self.draw_theme_decorations(screen)
+    
+    def draw_theme_decorations(self, screen):
+        """테마별 장식 효과"""
+        current_time = pygame.time.get_ticks()
+        
+        if self.current_theme == THEME_CHRISTMAS:
+            # 눈송이 효과
+            for i in range(20):
+                x = (current_time // 50 + i * 37) % (SCREEN_WIDTH + 20) - 10
+                y = (current_time // 30 + i * 23) % (SCREEN_HEIGHT + 20) - 10
+                size = 2 + (i % 3)
+                alpha = 100 + (i % 100)
+                
+                snowflake_surface = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
+                pygame.draw.circle(snowflake_surface, (*CHRISTMAS_WHITE, alpha), (size, size), size)
+                screen.blit(snowflake_surface, (x, y))
+        
+        elif self.current_theme == THEME_HALLOWEEN:
+            # 박쥐 실루엣 효과
+            for i in range(5):
+                x = (current_time // 100 + i * 80) % (SCREEN_WIDTH + 40) - 20
+                y = 50 + math.sin((current_time + i * 1000) / 1000) * 30
+                
+                # 간단한 박쥐 모양
+                bat_points = [
+                    (x, y), (x-8, y-4), (x-4, y-8), (x, y-4),
+                    (x+4, y-8), (x+8, y-4), (x, y)
+                ]
+                bat_surface = pygame.Surface((20, 20), pygame.SRCALPHA)
+                pygame.draw.polygon(bat_surface, (*HALLOWEEN_BLACK, 150), 
+                                  [(p[0]-x+10, p[1]-y+10) for p in bat_points])
+                screen.blit(bat_surface, (x-10, y-10))
+        
+        elif self.current_theme == THEME_SPRING:
+            # 꽃잎 효과
+            for i in range(15):
+                x = (current_time // 80 + i * 45) % (SCREEN_WIDTH + 30) - 15
+                y = (current_time // 60 + i * 67) % (SCREEN_HEIGHT + 30) - 15
+                
+                petal_surface = pygame.Surface((6, 6), pygame.SRCALPHA)
+                color = SPRING_PINK if i % 2 == 0 else SPRING_YELLOW
+                pygame.draw.circle(petal_surface, (*color, 120), (3, 3), 3)
+                screen.blit(petal_surface, (x, y))
+        
+        elif self.current_theme == THEME_SUMMER:
+            # 태양 광선 효과
+            sun_x, sun_y = SCREEN_WIDTH - 60, 60
+            for i in range(8):
+                angle = (current_time / 1000 + i * math.pi / 4) % (2 * math.pi)
+                end_x = sun_x + math.cos(angle) * 40
+                end_y = sun_y + math.sin(angle) * 40
+                
+                ray_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+                pygame.draw.line(ray_surface, (*SUMMER_YELLOW, 50), 
+                               (sun_x, sun_y), (end_x, end_y), 2)
+                screen.blit(ray_surface, (0, 0))
     
     def draw_combo_ui(self, screen):
         """콤보 UI 표시"""
@@ -1190,59 +1697,62 @@ class Game:
             pygame.draw.circle(self.screen, WHITE, (self.launch_x - 2, launch_y - 2), 3)
         
     def draw_ui(self):
+        # 테마 색상 가져오기
+        theme_colors = self.theme_manager.get_theme_colors(self.current_theme)
+        
         # 상단 UI - 글래스모피즘 스타일
         ui_surface = pygame.Surface((SCREEN_WIDTH, TOP_UI_HEIGHT), pygame.SRCALPHA)
-        ui_surface.fill((*DARK_SURFACE, 200))  # 반투명 배경
+        ui_surface.fill((*theme_colors['surface'], 200))  # 반투명 배경
         self.screen.blit(ui_surface, (0, 0))
         
-        # 상단 테두리 (네온 액센트)
-        pygame.draw.line(self.screen, ACCENT_COLOR, (0, TOP_UI_HEIGHT-1), (SCREEN_WIDTH, TOP_UI_HEIGHT-1), 2)
+        # 상단 테두리 (테마 액센트)
+        pygame.draw.line(self.screen, theme_colors['accent'], (0, TOP_UI_HEIGHT-1), (SCREEN_WIDTH, TOP_UI_HEIGHT-1), 2)
         
         # 점수 카드 (왼쪽)
         score_card = pygame.Rect(15, 10, 150, 60)
-        pygame.draw.rect(self.screen, DARKER_SURFACE, score_card, border_radius=8)
-        pygame.draw.rect(self.screen, NEON_CYAN, score_card, 1, border_radius=8)
+        pygame.draw.rect(self.screen, theme_colors['darker_surface'], score_card, border_radius=8)
+        pygame.draw.rect(self.screen, theme_colors['ball_color'], score_card, 1, border_radius=8)
         
         # 점수 텍스트
-        score_label = self.safe_render_text(self.small_font, "SCORE", TEXT_SECONDARY)
-        score_value = self.safe_render_text(self.font, f"{self.score:,}", NEON_CYAN)
+        score_label = self.safe_render_text(self.small_font, "SCORE", theme_colors['text_secondary'])
+        score_value = self.safe_render_text(self.font, f"{self.score:,}", theme_colors['ball_color'])
         self.screen.blit(score_label, (25, 20))
         self.screen.blit(score_value, (25, 40))
         
         # 베스트 스코어 (작게)
         if self.high_score > 0:
-            best_text = self.safe_render_text(self.small_font, f"BEST: {self.high_score:,}", TEXT_SECONDARY)
+            best_text = self.safe_render_text(self.small_font, f"BEST: {self.high_score:,}", theme_colors['text_secondary'])
             self.screen.blit(best_text, (180, 25))
         
         # 라운드 카드 (오른쪽)
         round_card = pygame.Rect(SCREEN_WIDTH - 100, 10, 85, 60)
-        pygame.draw.rect(self.screen, DARKER_SURFACE, round_card, border_radius=8)
-        pygame.draw.rect(self.screen, NEON_PURPLE, round_card, 1, border_radius=8)
+        pygame.draw.rect(self.screen, theme_colors['darker_surface'], round_card, border_radius=8)
+        pygame.draw.rect(self.screen, theme_colors['accent'], round_card, 1, border_radius=8)
         
-        round_label = self.safe_render_text(self.small_font, "ROUND", TEXT_SECONDARY)
-        round_value = self.safe_render_text(self.font, f"{self.round_num}", NEON_PURPLE)
+        round_label = self.safe_render_text(self.small_font, "ROUND", theme_colors['text_secondary'])
+        round_value = self.safe_render_text(self.font, f"{self.round_num}", theme_colors['accent'])
         self.screen.blit(round_label, (SCREEN_WIDTH - 90, 20))
         self.screen.blit(round_value, (SCREEN_WIDTH - 75, 40))
         
         # 하단 UI - 글래스모피즘 스타일
         bottom_surface = pygame.Surface((SCREEN_WIDTH, BOTTOM_UI_HEIGHT), pygame.SRCALPHA)
-        bottom_surface.fill((*DARK_SURFACE, 200))
+        bottom_surface.fill((*theme_colors['surface'], 200))
         self.screen.blit(bottom_surface, (0, SCREEN_HEIGHT - BOTTOM_UI_HEIGHT))
         
         # 하단 테두리
-        pygame.draw.line(self.screen, ACCENT_COLOR, (0, SCREEN_HEIGHT - BOTTOM_UI_HEIGHT), 
+        pygame.draw.line(self.screen, theme_colors['accent'], (0, SCREEN_HEIGHT - BOTTOM_UI_HEIGHT), 
                         (SCREEN_WIDTH, SCREEN_HEIGHT - BOTTOM_UI_HEIGHT), 2)
         
         # 공 개수 표시 (중앙, 더 큰 스타일)
         ball_bg = pygame.Rect(SCREEN_WIDTH//2 - 60, SCREEN_HEIGHT - 80, 120, 50)
-        pygame.draw.rect(self.screen, DARKER_SURFACE, ball_bg, border_radius=25)
-        pygame.draw.rect(self.screen, NEON_GREEN, ball_bg, 2, border_radius=25)
+        pygame.draw.rect(self.screen, theme_colors['darker_surface'], ball_bg, border_radius=25)
+        pygame.draw.rect(self.screen, theme_colors['ball_color'], ball_bg, 2, border_radius=25)
         
         # 공 아이콘 (원형)
-        pygame.draw.circle(self.screen, NEON_GREEN, (SCREEN_WIDTH//2 - 30, SCREEN_HEIGHT - 55), 8)
-        pygame.draw.circle(self.screen, WHITE, (SCREEN_WIDTH//2 - 30, SCREEN_HEIGHT - 55), 8, 2)
+        pygame.draw.circle(self.screen, theme_colors['ball_color'], (SCREEN_WIDTH//2 - 30, SCREEN_HEIGHT - 55), 8)
+        pygame.draw.circle(self.screen, theme_colors['text'], (SCREEN_WIDTH//2 - 30, SCREEN_HEIGHT - 55), 8, 2)
         
-        ball_count_text = self.safe_render_text(self.font, f"×{self.ball_count}", WHITE)
+        ball_count_text = self.safe_render_text(self.font, f"×{self.ball_count}", theme_colors['text'])
         text_rect = ball_count_text.get_rect()
         text_rect.center = (SCREEN_WIDTH//2 + 10, SCREEN_HEIGHT - 55)
         self.screen.blit(ball_count_text, text_rect)
@@ -1264,8 +1774,8 @@ class Game:
         # 슈퍼볼 관련 UI 코드 삭제
         
     def draw(self):
-        # 다크 테마 배경
-        self.screen.fill(BLACK)
+        # 테마에 따른 배경
+        self.draw_themed_background(self.screen)
         
         if self.game_state == GAME_STATE_TITLE:
             self.draw_title()
@@ -1275,6 +1785,8 @@ class Game:
             self.draw_settings()
         elif self.game_state == GAME_STATE_RANKING:
             self.draw_ranking()
+        elif self.game_state == GAME_STATE_STATISTICS:
+            self.draw_statistics()
             
         pygame.display.flip()
         
@@ -1389,6 +1901,10 @@ class Game:
         
         # 콤보 UI 그리기
         self.draw_combo_ui(self.screen)
+        
+        # 일시정지 화면
+        if self.paused:
+            self.draw_pause_menu()
         
         # 게임 오버 메시지 (모던 스타일)
         if self.game_over:
@@ -1505,11 +2021,22 @@ class Game:
         self.screen.blit(title_text, title_rect)
         
         # 설정 항목들 (카드 스타일)
+        theme_names = {
+            "auto": "Auto",
+            "dark": "Dark",
+            "light": "Light", 
+            "christmas": "Christmas",
+            "halloween": "Halloween",
+            "spring": "Spring",
+            "summer": "Summer"
+        }
+        
         settings_text = [
             f"{get_text('ball_speed')}: {self.settings['ball_speed']}",
             f"{get_text('sound')}: {get_text('sound_on') if self.settings['sound_enabled'] else get_text('sound_off')}",
             f"{get_text('difficulty')}: {self.settings['difficulty']}",
-            f"{get_text('language')}: {language_manager.get_language_name(self.settings['language'])}"
+            f"{get_text('language')}: {language_manager.get_language_name(self.settings['language'])}",
+            f"Theme: {theme_names.get(self.settings['theme'], self.settings['theme'])}"
         ]
         
         for i, text in enumerate(settings_text):
@@ -1733,6 +2260,123 @@ class Game:
             back_font = self.small_font
         back_text = back_font.render("ESC: " + get_text('back_to_title'), True, TEXT_SECONDARY)
         back_rect = back_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 20))
+        self.screen.blit(back_text, back_rect)
+    
+    def draw_pause_menu(self):
+        """일시정지 메뉴 그리기"""
+        # 블러 배경
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((*BLACK, 180))
+        self.screen.blit(overlay, (0, 0))
+        
+        # 일시정지 카드
+        pause_card = pygame.Rect(50, SCREEN_HEIGHT//2 - 120, SCREEN_WIDTH - 100, 240)
+        theme_colors = self.theme_manager.get_theme_colors(self.current_theme)
+        pygame.draw.rect(self.screen, theme_colors['darker_surface'], pause_card, border_radius=20)
+        pygame.draw.rect(self.screen, theme_colors['accent'], pause_card, 3, border_radius=20)
+        
+        # 일시정지 타이틀
+        pause_title = self.safe_render_text(self.large_font, "⏸️ PAUSED", theme_colors['accent'])
+        pause_rect = pause_title.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 80))
+        self.screen.blit(pause_title, pause_rect)
+        
+        # 메뉴 옵션들
+        menu_options = ["Continue", "Settings", "Main Menu"]
+        
+        for i, option in enumerate(menu_options):
+            y = SCREEN_HEIGHT//2 - 30 + i * 40
+            
+            if i == self.pause_menu_selected:
+                # 선택된 옵션
+                option_surface = self.safe_render_text(self.font, f"▶ {option}", theme_colors['accent'])
+            else:
+                option_surface = self.safe_render_text(self.font, option, theme_colors['text'])
+            
+            option_rect = option_surface.get_rect(center=(SCREEN_WIDTH//2, y))
+            self.screen.blit(option_surface, option_rect)
+        
+        # 조작 안내
+        help_text = self.safe_render_text(self.small_font, "↑↓: Select • ENTER: Confirm • ESC: Resume", theme_colors['text_secondary'])
+        help_rect = help_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 90))
+        self.screen.blit(help_text, help_rect)
+    
+    def draw_statistics(self):
+        """통계 화면 그리기"""
+        # 테마 배경
+        self.draw_themed_background(self.screen)
+        
+        theme_colors = self.theme_manager.get_theme_colors(self.current_theme)
+        
+        # 통계 메인 카드
+        stats_card = pygame.Rect(20, 50, SCREEN_WIDTH - 40, SCREEN_HEIGHT - 100)
+        pygame.draw.rect(self.screen, theme_colors['darker_surface'], stats_card, border_radius=20)
+        pygame.draw.rect(self.screen, theme_colors['accent'], stats_card, 3, border_radius=20)
+        
+        # 제목
+        title_text = self.safe_render_text(self.large_font, "📊 STATISTICS", theme_colors['accent'])
+        title_rect = title_text.get_rect(center=(SCREEN_WIDTH//2, 90))
+        self.screen.blit(title_text, title_rect)
+        
+        # 통계 데이터
+        stats_data = [
+            ("Play Time", self.stats_manager.get_play_time_formatted()),
+            ("Games Played", str(self.stats_manager.stats['games_played'])),
+            ("Highest Score", f"{self.stats_manager.stats['highest_score']:,}"),
+            ("Average Score", f"{self.stats_manager.get_average_score():,}"),
+            ("Highest Round", str(self.stats_manager.stats['highest_round'])),
+            ("Blocks Destroyed", str(self.stats_manager.stats['total_blocks_destroyed'])),
+            ("Highest Combo", str(self.stats_manager.stats['highest_combo'])),
+            ("Combos Achieved", str(self.stats_manager.stats['combos_achieved'])),
+            ("Powerups Used", str(self.stats_manager.stats['powerups_used'])),
+            ("Bonus Balls", str(self.stats_manager.stats['bonus_balls_collected']))
+        ]
+        
+        # 통계 항목들 (2열로 배치)
+        for i, (label, value) in enumerate(stats_data):
+            col = i % 2
+            row = i // 2
+            x = 60 + col * 140
+            y = 140 + row * 35
+            
+            # 라벨
+            label_surface = self.safe_render_text(self.small_font, label + ":", theme_colors['text_secondary'])
+            self.screen.blit(label_surface, (x, y))
+            
+            # 값
+            value_surface = self.safe_render_text(self.font, value, theme_colors['text'])
+            self.screen.blit(value_surface, (x, y + 15))
+        
+        # 블록별 파괴 통계
+        block_stats_y = 480
+        block_title = self.safe_render_text(self.font, "Blocks Destroyed by Type:", theme_colors['text'])
+        self.screen.blit(block_title, (40, block_stats_y))
+        
+        block_types = [
+            ("Normal", self.stats_manager.stats['blocks_destroyed']['normal'], theme_colors['text']),
+            ("Bomb", self.stats_manager.stats['blocks_destroyed']['bomb'], (255, 69, 0)),
+            ("Shield", self.stats_manager.stats['blocks_destroyed']['shield'], (70, 130, 180)),
+            ("Ghost", self.stats_manager.stats['blocks_destroyed']['ghost'], (147, 112, 219))
+        ]
+        
+        for i, (block_type, count, color) in enumerate(block_types):
+            x = 40 + i * 80
+            y = block_stats_y + 30
+            
+            # 블록 타입 아이콘 (작은 사각형)
+            block_rect = pygame.Rect(x, y, 20, 20)
+            pygame.draw.rect(self.screen, color, block_rect, border_radius=4)
+            pygame.draw.rect(self.screen, theme_colors['text'], block_rect, 1, border_radius=4)
+            
+            # 타입명과 개수
+            type_text = self.safe_render_text(self.small_font, block_type, theme_colors['text_secondary'])
+            count_text = self.safe_render_text(self.small_font, str(count), theme_colors['text'])
+            
+            self.screen.blit(type_text, (x + 25, y))
+            self.screen.blit(count_text, (x + 25, y + 12))
+        
+        # 뒤로가기 안내
+        back_text = self.safe_render_text(self.small_font, "ESC: Back to Menu", theme_colors['text_secondary'])
+        back_rect = back_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 30))
         self.screen.blit(back_text, back_rect)
         
     def run(self):
