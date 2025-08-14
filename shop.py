@@ -105,19 +105,20 @@ class Shop:
             pos = event.pos
             # 아이템 구매
             for item in self.items:
-                if item['btn_rect'].collidepoint(pos):
-                    self.buy(item)
+                if hasattr(item, 'btn_rect') and item['btn_rect'].collidepoint(pos):
+                    if self.buy(item):
+                        # 구매 성공 시 게임의 점수도 업데이트 필요
+                        pass
             # 닫기 버튼
-            if self.close_rect.collidepoint(pos):
+            if hasattr(self, 'close_rect') and self.close_rect.collidepoint(pos):
                 self.open = False
 
     def buy(self, item):
         if self.player_score >= item['price']:
             self.player_score -= item['price']
-            if item['name'] == "블록 삭제":
-                self.owned_items.append(item)  # 즉시 사용 플래그(게임에서 처리)
-            else:
-                self.owned_items.append(item)
+            self.owned_items.append(item)
+            return True
+        return False
 
     def use_item(self, key):
         # 1,2,3번 키로 아이템 사용
@@ -129,4 +130,8 @@ class Shop:
 
     def reset(self, player_score):
         self.owned_items = []
-        self.player_score = player_score 
+        self.player_score = player_score
+        
+    def update_score(self, new_score):
+        """게임에서 점수가 변경될 때 상점의 점수도 업데이트"""
+        self.player_score = new_score 

@@ -187,6 +187,303 @@ class StatisticsManager:
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
+class AchievementManager:
+    def __init__(self):
+        self.achievements = {
+            'block_destroyer': {
+                'id': 'block_destroyer',
+                'name': '💥 Block Destroyer',
+                'description': 'Destroy 10 blocks in a single shot',
+                'unlocked': False,
+                'progress': 0,
+                'target': 10,
+                'icon': '💥'
+            },
+            'centurion': {
+                'id': 'centurion',
+                'name': '💯 Centurion',
+                'description': 'Reach round 100',
+                'unlocked': False,
+                'progress': 0,
+                'target': 100,
+                'icon': '💯'
+            },
+            'perfect_angle_45': {
+                'id': 'perfect_angle_45',
+                'name': '📐 Perfect 45°',
+                'description': 'Complete a round using only 45° angles',
+                'unlocked': False,
+                'progress': 0,
+                'target': 1,
+                'icon': '📐'
+            },
+            'perfect_angle_90': {
+                'id': 'perfect_angle_90',
+                'name': '⬆️ Straight Shooter',
+                'description': 'Complete a round using only 90° angles',
+                'unlocked': False,
+                'progress': 0,
+                'target': 1,
+                'icon': '⬆️'
+            },
+            'perfect_angle_135': {
+                'id': 'perfect_angle_135',
+                'name': '↗️ Perfect 135°',
+                'description': 'Complete a round using only 135° angles',
+                'unlocked': False,
+                'progress': 0,
+                'target': 1,
+                'icon': '↗️'
+            },
+            'combo_master': {
+                'id': 'combo_master',
+                'name': '🔥 Combo Master',
+                'description': 'Achieve a 20x combo',
+                'unlocked': False,
+                'progress': 0,
+                'target': 20,
+                'icon': '🔥'
+            },
+            'speed_demon': {
+                'id': 'speed_demon',
+                'name': '⚡ Speed Demon',
+                'description': 'Survive 50 rounds in Survival mode',
+                'unlocked': False,
+                'progress': 0,
+                'target': 50,
+                'icon': '⚡'
+            },
+            'puzzle_solver': {
+                'id': 'puzzle_solver',
+                'name': '🧩 Puzzle Solver',
+                'description': 'Complete 10 puzzle levels',
+                'unlocked': False,
+                'progress': 0,
+                'target': 10,
+                'icon': '🧩'
+            },
+            'time_master': {
+                'id': 'time_master',
+                'name': '⏰ Time Master',
+                'description': 'Score 5000+ in Time Attack mode',
+                'unlocked': False,
+                'progress': 0,
+                'target': 5000,
+                'icon': '⏰'
+            },
+            'special_destroyer': {
+                'id': 'special_destroyer',
+                'name': '🎯 Special Destroyer',
+                'description': 'Destroy 100 special blocks',
+                'unlocked': False,
+                'progress': 0,
+                'target': 100,
+                'icon': '🎯'
+            }
+        }
+        self.notifications = []  # 업적 알림 큐
+        self.load_achievements()
+        
+        # 각도 추적 변수들
+        self.current_round_angles = []
+        self.round_started = False
+    
+    def load_achievements(self):
+        """업적 파일 로드"""
+        try:
+            with open('achievements.json', 'r') as f:
+                saved_achievements = json.load(f)
+                for achievement_id, data in saved_achievements.items():
+                    if achievement_id in self.achievements:
+                        self.achievements[achievement_id].update(data)
+        except:
+            pass  # 파일이 없으면 기본값 사용
+    
+    def save_achievements(self):
+        """업적 파일 저장"""
+        try:
+            with open('achievements.json', 'w') as f:
+                json.dump(self.achievements, f)
+        except:
+            pass
+    
+    def check_achievement(self, achievement_id, value=1):
+        """업적 진행도 체크 및 업데이트"""
+        if achievement_id not in self.achievements:
+            return False
+            
+        achievement = self.achievements[achievement_id]
+        if achievement['unlocked']:
+            return False
+        
+        # 진행도 업데이트
+        if achievement_id in ['combo_master', 'centurion', 'time_master']:
+            # 최대값 기록 방식
+            achievement['progress'] = max(achievement['progress'], value)
+        else:
+            # 누적 방식
+            achievement['progress'] += value
+        
+        # 업적 달성 체크
+        if achievement['progress'] >= achievement['target']:
+            achievement['unlocked'] = True
+            self.add_notification(achievement)
+            self.save_achievements()
+            return True
+        
+        self.save_achievements()
+        return False
+    
+    def add_notification(self, achievement):
+        """업적 달성 알림 추가"""
+        notification = {
+            'achievement': achievement,
+            'timestamp': pygame.time.get_ticks(),
+            'duration': ACHIEVEMENT_NOTIFICATION_DURATION
+        }
+        self.notifications.append(notification)
+    
+    def update_notifications(self):
+        """알림 업데이트 (만료된 알림 제거)"""
+        current_time = pygame.time.get_ticks()
+        self.notifications = [
+            notif for notif in self.notifications 
+            if current_time - notif['timestamp'] < notif['duration']
+        ]
+    
+    def track_angle(self, angle):
+        """발사 각도 추적"""
+        if self.round_started:
+            self.current_round_angles.append(angle)
+    
+    def start_round(self):
+        """라운드 시작 시 각도 추적 초기화"""
+        self.round_started = True
+        self.current_round_angles = []
+    
+    def end_round(self):
+        """라운드 종료 시 완벽한 각도 업적 체크"""
+        if not self.round_started or not self.current_round_angles:
+            return
+        
+        # 각 완벽한 각도에 대해 체크
+        for perfect_angle in PERFECT_ANGLES:
+            achievement_id = f'perfect_angle_{perfect_angle}'
+            if achievement_id in self.achievements:
+                # 모든 발사가 해당 각도 범위 내인지 체크
+                all_perfect = all(
+                    abs(angle - perfect_angle) <= PERFECT_ANGLE_TOLERANCE 
+                    for angle in self.current_round_angles
+                )
+                if all_perfect and len(self.current_round_angles) > 0:
+                    self.check_achievement(achievement_id, 1)
+        
+        self.round_started = False
+        self.current_round_angles = []
+    
+    def get_unlocked_count(self):
+        """달성한 업적 수 반환"""
+        return sum(1 for achievement in self.achievements.values() if achievement['unlocked'])
+    
+    def get_total_count(self):
+        """전체 업적 수 반환"""
+        return len(self.achievements)
+    
+    def get_completion_percentage(self):
+        """업적 달성률 반환"""
+        if self.get_total_count() == 0:
+            return 0
+        return (self.get_unlocked_count() / self.get_total_count()) * 100
+
+
+class GameModeManager:
+    def __init__(self):
+        self.current_mode = GAME_MODE_CLASSIC
+        self.mode_data = {}
+        
+    def set_mode(self, mode):
+        """게임 모드 설정"""
+        self.current_mode = mode
+        self.mode_data = {}
+        
+        if mode == GAME_MODE_TIME_ATTACK:
+            self.mode_data = {
+                'time_left': TIME_ATTACK_DURATION,
+                'start_time': time.time()
+            }
+        elif mode == GAME_MODE_PUZZLE:
+            self.mode_data = {
+                'balls_left': PUZZLE_MODE_BALLS,
+                'total_balls': PUZZLE_MODE_BALLS
+            }
+        elif mode == GAME_MODE_SURVIVAL:
+            self.mode_data = {
+                'speed_multiplier': 1.0,
+                'rounds_survived': 0
+            }
+    
+    def update(self, game):
+        """모드별 업데이트 로직"""
+        if self.current_mode == GAME_MODE_TIME_ATTACK:
+            # 시간 제한 모드: 시간 감소
+            current_time = time.time()
+            elapsed = current_time - self.mode_data['start_time']
+            self.mode_data['time_left'] = max(0, TIME_ATTACK_DURATION - elapsed)
+            
+            if self.mode_data['time_left'] <= 0:
+                game.game_over = True
+                
+        elif self.current_mode == GAME_MODE_PUZZLE:
+            # 퍼즐 모드: 공 개수 체크
+            # 라운드가 끝날 때마다 남은 공 개수 업데이트
+            if hasattr(game, 'round_in_progress') and not game.round_in_progress:
+                # 현재 라운드에서 사용한 공 개수만큼 차감
+                if 'balls_used_this_round' not in self.mode_data:
+                    self.mode_data['balls_used_this_round'] = 0
+                
+                # 라운드 완료 시 공 개수 차감
+                if game.balls_launched > self.mode_data['balls_used_this_round']:
+                    used_balls = game.balls_launched - self.mode_data['balls_used_this_round']
+                    self.mode_data['balls_left'] = max(0, self.mode_data['balls_left'] - used_balls)
+                    self.mode_data['balls_used_this_round'] = game.balls_launched
+                
+                # 공이 부족하고 블록이 남아있으면 게임 오버
+                if self.mode_data['balls_left'] <= 0 and len([b for b in game.blocks if b.active]) > 0:
+                    game.game_over = True
+                    
+        elif self.current_mode == GAME_MODE_SURVIVAL:
+            # 생존 모드: 속도 증가
+            self.mode_data['rounds_survived'] = game.round_num
+            self.mode_data['speed_multiplier'] = 1.0 + (game.round_num - 1) * SURVIVAL_SPEED_INCREASE
+    
+    def get_mode_name(self):
+        """모드 이름 반환"""
+        mode_names = {
+            GAME_MODE_CLASSIC: "Classic",
+            GAME_MODE_TIME_ATTACK: "Time Attack",
+            GAME_MODE_SURVIVAL: "Survival",
+            GAME_MODE_PUZZLE: "Puzzle"
+        }
+        return mode_names.get(self.current_mode, "Unknown")
+    
+    def get_mode_description(self):
+        """모드 설명 반환"""
+        descriptions = {
+            GAME_MODE_CLASSIC: "Standard game mode with unlimited time",
+            GAME_MODE_TIME_ATTACK: f"Clear as many blocks as possible in {TIME_ATTACK_DURATION} seconds",
+            GAME_MODE_SURVIVAL: "Survive as long as possible with increasing difficulty",
+            GAME_MODE_PUZZLE: f"Clear all blocks with only {PUZZLE_MODE_BALLS} balls"
+        }
+        return descriptions.get(self.current_mode, "")
+    
+    def is_game_complete(self, game):
+        """게임 완료 조건 체크"""
+        if self.current_mode == GAME_MODE_PUZZLE:
+            # 퍼즐 모드: 모든 블록 파괴 시 성공
+            return len([b for b in game.blocks if b.active]) == 0
+        return False
+
+
 class ThemeManager:
     def __init__(self):
         self.current_theme = THEME_DARK
@@ -395,12 +692,17 @@ class Ball:
         # 현재 위치를 트레일에 추가
         self.trail_points.append(TrailPoint(self.x, self.y))
         
-        # 트레일 길이 제한
+        # 트레일 길이 제한 (메모리 효율성)
         if len(self.trail_points) > TRAIL_LENGTH:
-            self.trail_points.pop(0)
+            self.trail_points = self.trail_points[-TRAIL_LENGTH:]
         
         # 스피드볼 효과 적용
         speed_multiplier = 2 if self.game and self.game.active_powerups.get(2, False) else 1
+        
+        # 생존 모드 속도 증가 적용
+        if self.game and self.game.mode_manager.current_mode == GAME_MODE_SURVIVAL:
+            speed_multiplier *= self.game.mode_manager.mode_data.get('speed_multiplier', 1.0)
+        
         self.x += self.dx * speed_multiplier
         self.y += self.dy * speed_multiplier
         
@@ -565,6 +867,13 @@ class Block:
             game.blocks_destroyed_by_type['ghost'] += 1
         else:
             game.blocks_destroyed_by_type['normal'] += 1
+        
+        # 업적: 블록 파괴 카운트
+        game.blocks_destroyed_this_shot += 1
+        
+        # 업적: 특수 블록 파괴
+        if self.block_type != BLOCK_TYPE_NORMAL:
+            game.achievement_manager.check_achievement('special_destroyer', 1)
         
         for _ in range(EXPLOSION_PARTICLE_COUNT):
             # 랜덤한 방향과 속도
@@ -945,6 +1254,14 @@ class Game:
         self.highest_combo_this_game = 0
         self.powerups_used_this_game = 0
         
+        # 게임 모드 시스템
+        self.mode_manager = GameModeManager()
+        self.mode_select_index = 0
+        
+        # 업적 시스템
+        self.achievement_manager = AchievementManager()
+        self.blocks_destroyed_this_shot = 0
+        
         self.reset_game()
         
         self.shop = Shop(self.font, self.score)
@@ -953,12 +1270,16 @@ class Game:
     def safe_render_text(self, font, text, color, fallback_font=None):
         """안전한 텍스트 렌더링 (한글 깨짐 방지)"""
         try:
+            # 텍스트가 None이거나 빈 문자열인 경우 처리
+            if text is None:
+                text = ""
+            text = str(text)
             return font.render(text, True, color)
-        except:
+        except Exception as e:
             # 폰트 렌더링 실패 시 대체 폰트 사용
             if fallback_font:
                 try:
-                    return fallback_font.render(text, True, color)
+                    return fallback_font.render(str(text), True, color)
                 except:
                     pass
             # 최후의 수단: 기본 폰트
@@ -967,17 +1288,25 @@ class Game:
                 return default_font.render(str(text), True, color)
             except:
                 # 텍스트를 ASCII로 변환
-                safe_text = text.encode('ascii', 'ignore').decode('ascii')
-                default_font = pygame.font.Font(None, 24)
-                return default_font.render(safe_text if safe_text else "Text", True, color)
+                try:
+                    safe_text = str(text).encode('ascii', 'ignore').decode('ascii')
+                    default_font = pygame.font.Font(None, 24)
+                    return default_font.render(safe_text if safe_text else "Text", True, color)
+                except:
+                    # 최종 대안: 빈 서피스 반환
+                    surface = pygame.Surface((50, 20), pygame.SRCALPHA)
+                    surface.fill((0, 0, 0, 0))
+                    return surface
         
     def get_menu_items(self):
         """현재 언어에 따른 메뉴 항목들 반환"""
         return [
             get_text('menu_start'),
+            "Challenge Modes",
             get_text('menu_settings'), 
             get_text('menu_ranking'),
             "Statistics",
+            "Achievements",
             get_text('menu_quit')
         ]
         
@@ -1086,6 +1415,15 @@ class Game:
         if not self.replay_manager.playing:
             self.replay_manager.start_recording()
         
+        # 업적 시스템 초기화
+        self.blocks_destroyed_this_shot = 0
+        
+        # 상점 초기화
+        if hasattr(self, 'shop'):
+            self.shop.open = False
+            self.shop.owned_items = []
+            self.shop.player_score = self.score
+        
         self.generate_blocks()
     
     def add_score(self, points, block_color=None):
@@ -1116,6 +1454,9 @@ class Game:
                     self.highest_combo_this_game = self.combo_count
                 if self.combo_count == MIN_COMBO_COUNT:
                     self.combos_this_game += 1
+                
+                # 업적: 콤보 마스터
+                self.achievement_manager.check_achievement('combo_master', self.combo_count)
             else:
                 self.combo_multiplier = 1.0
             
@@ -1129,25 +1470,37 @@ class Game:
         self.combo_score_gained = final_points - points  # 콤보로 얻은 추가 점수
         
         self.score += final_points
+        
+        # 상점 점수 동기화
+        if hasattr(self, 'shop'):
+            self.shop.update_score(self.score)
     
     def save_game_score(self):
         """게임 점수를 데이터베이스에 저장"""
         if self.player_name.strip() and not self.score_saved:
-            success = db_manager.save_score(
-                self.player_name.strip(),
-                self.score,
-                self.round_num,
-                self.ball_count
-            )
-            if success:
-                self.score_saved = True
-                print(f"점수 저장 완료: {self.player_name} - {self.score}점")
-            return success
+            try:
+                success = db_manager.save_score(
+                    self.player_name.strip(),
+                    self.score,
+                    self.round_num,
+                    self.ball_count
+                )
+                if success:
+                    self.score_saved = True
+                    print(f"점수 저장 완료: {self.player_name} - {self.score}점")
+                return success
+            except Exception as e:
+                print(f"점수 저장 중 오류 발생: {e}")
+                return False
         return False
     
     def get_rankings(self, limit=10):
         """랭킹 조회"""
-        return db_manager.get_top_scores(limit)
+        try:
+            return db_manager.get_top_scores(limit)
+        except Exception as e:
+            print(f"랭킹 조회 중 오류 발생: {e}")
+            return []
     
     def use_super_ball(self):
         pass  # 완전 삭제(호출도 제거)
@@ -1229,6 +1582,13 @@ class Game:
                             self.combos_this_game, self.highest_combo_this_game,
                             self.powerups_used_this_game, self.bonus_balls_collected
                         )
+                        
+                        # 모드별 업적 체크
+                        if self.mode_manager.current_mode == GAME_MODE_TIME_ATTACK:
+                            self.achievement_manager.check_achievement('time_master', self.score)
+                        elif self.mode_manager.current_mode == GAME_MODE_PUZZLE and self.mode_manager.is_game_complete(self):
+                            self.achievement_manager.check_achievement('puzzle_solver', 1)
+                        
                         # 높은 점수 시 리플레이 저장
                         if self.score >= REPLAY_SAVE_THRESHOLD:
                             self.replay_manager.save_replay(f"replay_{int(time.time())}", self.score, self.round_num)
@@ -1263,6 +1623,20 @@ class Game:
                 elif self.game_state == GAME_STATE_STATISTICS:
                     if event.key == pygame.K_ESCAPE:
                         self.game_state = GAME_STATE_TITLE
+                elif self.game_state == GAME_STATE_MODE_SELECT:
+                    if event.key == pygame.K_ESCAPE:
+                        self.game_state = GAME_STATE_TITLE
+                    elif event.key == pygame.K_UP:
+                        self.mode_select_index = (self.mode_select_index - 1) % 4
+                    elif event.key == pygame.K_DOWN:
+                        self.mode_select_index = (self.mode_select_index + 1) % 4
+                    elif event.key == pygame.K_RETURN:
+                        self.mode_manager.set_mode(self.mode_select_index)
+                        self.game_state = GAME_STATE_GAME
+                        self.reset_game()
+                elif self.game_state == GAME_STATE_ACHIEVEMENTS:
+                    if event.key == pygame.K_ESCAPE:
+                        self.game_state = GAME_STATE_TITLE
             elif event.type == pygame.MOUSEMOTION:
                 if self.game_state == GAME_STATE_GAME and not self.game_over:
                     # 마우스 위치로 발사각도 계산
@@ -1292,23 +1666,44 @@ class Game:
                         if y - 20 <= mouse_y <= y + 20:
                             self.selected_menu = i
                             # 선택된 메뉴 실행
-                            if self.selected_menu == 0:  # 게임시작
+                            if self.selected_menu == 0:  # 게임시작 (클래식 모드)
+                                self.mode_manager.set_mode(GAME_MODE_CLASSIC)
                                 self.game_state = GAME_STATE_GAME
                                 self.reset_game()
-                            elif self.selected_menu == 1:  # 게임 설정
+                            elif self.selected_menu == 1:  # 도전 모드
+                                self.game_state = GAME_STATE_MODE_SELECT
+                            elif self.selected_menu == 2:  # 게임 설정
                                 self.game_state = GAME_STATE_SETTINGS
-                            elif self.selected_menu == 2:  # 랭킹
+                            elif self.selected_menu == 3:  # 랭킹
                                 self.game_state = GAME_STATE_RANKING
-                            elif self.selected_menu == 3:  # 통계
+                            elif self.selected_menu == 4:  # 통계
                                 self.game_state = GAME_STATE_STATISTICS
-                            elif self.selected_menu == 4:  # 게임 종료
+                            elif self.selected_menu == 5:  # 업적
+                                self.game_state = GAME_STATE_ACHIEVEMENTS
+                            elif self.selected_menu == 6:  # 게임 종료
                                 return False
                             break
                 elif self.game_state == GAME_STATE_GAME and not self.game_over and not self.round_in_progress:
                     self.start_launch()
                     
+        # 상점이 열려있을 때는 상점 이벤트만 처리
         if self.shop.open:
-            self.shop.handle_event(pygame.event.get())
+            shop_events = pygame.event.get()
+            for shop_event in shop_events:
+                if shop_event.type == pygame.MOUSEBUTTONDOWN:
+                    pos = shop_event.pos
+                    # 아이템 구매
+                    for item in self.shop.items:
+                        if 'btn_rect' in item and item['btn_rect'].collidepoint(pos):
+                            if self.shop.buy(item):
+                                # 게임의 점수도 업데이트
+                                self.score = self.shop.player_score
+                    # 닫기 버튼
+                    if hasattr(self.shop, 'close_rect') and self.shop.close_rect.collidepoint(pos):
+                        self.shop.open = False
+                elif shop_event.type == pygame.KEYDOWN:
+                    if shop_event.key == pygame.K_ESCAPE:
+                        self.shop.open = False
             return True
             
         return True
@@ -1320,26 +1715,42 @@ class Game:
         elif key == pygame.K_DOWN:
             self.selected_menu = (self.selected_menu + 1) % len(menu_items)
         elif key == pygame.K_RETURN or key == pygame.K_SPACE:
-            if self.selected_menu == 0:  # 게임시작
+            if self.selected_menu == 0:  # 게임시작 (클래식 모드)
+                self.mode_manager.set_mode(GAME_MODE_CLASSIC)
                 self.game_state = GAME_STATE_GAME
                 self.reset_game()
-            elif self.selected_menu == 1:  # 게임 설정
+            elif self.selected_menu == 1:  # 도전 모드
+                self.game_state = GAME_STATE_MODE_SELECT
+            elif self.selected_menu == 2:  # 게임 설정
                 self.game_state = GAME_STATE_SETTINGS
-            elif self.selected_menu == 2:  # 랭킹
+            elif self.selected_menu == 3:  # 랭킹
                 self.game_state = GAME_STATE_RANKING
-            elif self.selected_menu == 3:  # 통계
+            elif self.selected_menu == 4:  # 통계
                 self.game_state = GAME_STATE_STATISTICS
-            elif self.selected_menu == 4:  # 게임 종료
+            elif self.selected_menu == 5:  # 업적
+                self.game_state = GAME_STATE_ACHIEVEMENTS
+            elif self.selected_menu == 6:  # 게임 종료
                 return False
         
     def start_launch(self):
         # 라운드가 진행 중이 아닐 때만 새 라운드 시작
         if not self.round_in_progress:
+            # 퍼즐 모드에서 공이 부족한 경우 발사 불가
+            if (self.mode_manager.current_mode == GAME_MODE_PUZZLE and 
+                self.mode_manager.mode_data.get('balls_left', 0) <= 0):
+                return
+                
             # 새 라운드 시작
             self.round_in_progress = True
             self.launching = True
             self.launch_start_time = pygame.time.get_ticks()
             self.balls_launched = 0
+            self.blocks_destroyed_this_shot = 0
+            
+            # 업적: 각도 추적 시작
+            if self.balls_launched == 0:  # 첫 번째 공 발사 시에만
+                self.achievement_manager.start_round()
+                self.achievement_manager.track_angle(self.launch_angle)
             
             # 슈퍼볼 모드 관련 코드 완전 삭제
             angle_rad = math.radians(self.launch_angle)
@@ -1423,14 +1834,27 @@ class Game:
         # 슈퍼볼 아이템 리스트 정리 코드 삭제
         
         # 모든 공이 바닥에 떨어졌는지 확인 (라운드 완료)
-        if self.round_in_progress and self.balls_launched >= self.ball_count and len(self.balls) == 0:
+        if self.round_in_progress and self.balls_launched >= self.ball_count and len(self.balls) == 0 and not self.game_over:
             # 수집한 보너스 볼을 다음 라운드에 적용
             self.ball_count += self.bonus_balls_collected
             self.bonus_balls_collected = 0
             
-            # 슈퍼볼 관련 코드 삭제
             self.launching = False
             self.round_in_progress = False
+            
+            # 업적 체크
+            # 한 번에 10개 블록 파괴
+            if self.blocks_destroyed_this_shot >= 10:
+                self.achievement_manager.check_achievement('block_destroyer', 1)
+            
+            # 라운드 종료 시 각도 업적 체크
+            self.achievement_manager.end_round()
+            
+            # 라운드 종료 후 상점 오픈 (게임 오버가 아닐 때만)
+            if not self.game_over:
+                self.shop.open = True
+                self.shop.reset(self.score)
+            
             self.next_round()
             
         # 게임 오버 체크 (블록이나 보너스 볼이 바닥에 닿음)
@@ -1463,20 +1887,41 @@ class Game:
         # 콤보 시스템 업데이트
         self.update_combo_system()
         
-        # 파티클 시스템 업데이트
+        # 파티클 시스템 업데이트 (메모리 누수 방지)
         self.update_particles()
-        # 파워볼/스피드볼 효과 적용은 Ball/Block 처리에서 반영 예정
-        # 라운드 종료 후 상점 오픈
-        if self.round_in_progress and self.balls_launched >= self.ball_count and len(self.balls) == 0:
-            self.shop.open = True
-            self.shop.reset(self.score)
-            
-        # 블록 삭제 아이템 효과: shop.owned_items에 있으면 즉시 모든 블록 제거
+        
+        # 게임 모드별 업데이트
+        self.mode_manager.update(self)
+        
+        # 퍼즐 모드 완료 체크
+        if self.mode_manager.is_game_complete(self):
+            self.game_over = True
+        
+        # 업적 알림 업데이트
+        self.achievement_manager.update_notifications()
+        
+        # 메모리 정리 (파티클이 너무 많이 쌓이는 것 방지)
+        if len(self.particles) > 500:
+            self.particles = self.particles[-300:]
+        # 상점 아이템 효과 처리
         for item in self.shop.owned_items[:]:
-            if item['name'] == "블록 삭제":
+            if item['name'] == "파워볼":
+                self.active_powerups[1] = True
+                self.shop.owned_items.remove(item)
+                self.powerups_used_this_game += 1
+            elif item['name'] == "스피드볼":
+                self.active_powerups[2] = True
+                self.shop.owned_items.remove(item)
+                self.powerups_used_this_game += 1
+            elif item['name'] == "매그넘볼":
+                self.active_powerups[3] = True
+                self.shop.owned_items.remove(item)
+                self.powerups_used_this_game += 1
+            elif item['name'] == "블록 삭제":
                 for block in self.blocks:
                     block.active = False
                 self.shop.owned_items.remove(item)
+                self.powerups_used_this_game += 1
             
     def next_round(self):
         # 기존 블록들을 아래로 이동
@@ -1494,6 +1939,13 @@ class Game:
         
         # 라운드 증가
         self.round_num += 1
+        
+        # 업적: 100라운드 달성
+        self.achievement_manager.check_achievement('centurion', self.round_num)
+        
+        # 생존 모드 업적
+        if self.mode_manager.current_mode == GAME_MODE_SURVIVAL:
+            self.achievement_manager.check_achievement('speed_demon', self.round_num)
         
         # 테마 업데이트 (라운드에 따라)
         self.current_theme = self.theme_manager.get_round_theme(self.round_num)
@@ -1526,6 +1978,10 @@ class Game:
         
         # 비활성화된 파티클들 제거
         self.particles = [particle for particle in self.particles if particle.active]
+        
+        # 파티클 수 제한 (메모리 누수 방지)
+        if len(self.particles) > 200:
+            self.particles = self.particles[-150:]
     
     def draw_themed_background(self, screen):
         """테마에 따른 배경 그리기"""
@@ -1724,15 +2180,30 @@ class Game:
             best_text = self.safe_render_text(self.small_font, f"BEST: {self.high_score:,}", theme_colors['text_secondary'])
             self.screen.blit(best_text, (180, 25))
         
-        # 라운드 카드 (오른쪽)
-        round_card = pygame.Rect(SCREEN_WIDTH - 100, 10, 85, 60)
-        pygame.draw.rect(self.screen, theme_colors['darker_surface'], round_card, border_radius=8)
-        pygame.draw.rect(self.screen, theme_colors['accent'], round_card, 1, border_radius=8)
+        # 라운드/모드 정보 카드 (오른쪽)
+        info_card = pygame.Rect(SCREEN_WIDTH - 100, 10, 85, 60)
+        pygame.draw.rect(self.screen, theme_colors['darker_surface'], info_card, border_radius=8)
+        pygame.draw.rect(self.screen, theme_colors['accent'], info_card, 1, border_radius=8)
         
-        round_label = self.safe_render_text(self.small_font, "ROUND", theme_colors['text_secondary'])
-        round_value = self.safe_render_text(self.font, f"{self.round_num}", theme_colors['accent'])
-        self.screen.blit(round_label, (SCREEN_WIDTH - 90, 20))
-        self.screen.blit(round_value, (SCREEN_WIDTH - 75, 40))
+        # 모드별 정보 표시
+        if self.mode_manager.current_mode == GAME_MODE_TIME_ATTACK:
+            time_left = self.mode_manager.mode_data.get('time_left', 0)
+            info_label = self.safe_render_text(self.small_font, "TIME", theme_colors['text_secondary'])
+            info_value = self.safe_render_text(self.font, f"{int(time_left)}", theme_colors['accent'])
+        elif self.mode_manager.current_mode == GAME_MODE_PUZZLE:
+            balls_left = self.mode_manager.mode_data.get('balls_left', 0)
+            info_label = self.safe_render_text(self.small_font, "BALLS", theme_colors['text_secondary'])
+            info_value = self.safe_render_text(self.font, f"{balls_left}", theme_colors['accent'])
+        elif self.mode_manager.current_mode == GAME_MODE_SURVIVAL:
+            speed = self.mode_manager.mode_data.get('speed_multiplier', 1.0)
+            info_label = self.safe_render_text(self.small_font, "SPEED", theme_colors['text_secondary'])
+            info_value = self.safe_render_text(self.font, f"{speed:.1f}x", theme_colors['accent'])
+        else:  # 클래식 모드
+            info_label = self.safe_render_text(self.small_font, "ROUND", theme_colors['text_secondary'])
+            info_value = self.safe_render_text(self.font, f"{self.round_num}", theme_colors['accent'])
+        
+        self.screen.blit(info_label, (SCREEN_WIDTH - 90, 20))
+        self.screen.blit(info_value, (SCREEN_WIDTH - 75, 40))
         
         # 하단 UI - 글래스모피즘 스타일
         bottom_surface = pygame.Surface((SCREEN_WIDTH, BOTTOM_UI_HEIGHT), pygame.SRCALPHA)
@@ -1787,6 +2258,10 @@ class Game:
             self.draw_ranking()
         elif self.game_state == GAME_STATE_STATISTICS:
             self.draw_statistics()
+        elif self.game_state == GAME_STATE_MODE_SELECT:
+            self.draw_mode_select()
+        elif self.game_state == GAME_STATE_ACHIEVEMENTS:
+            self.draw_achievements()
             
         pygame.display.flip()
         
@@ -1902,6 +2377,13 @@ class Game:
         # 콤보 UI 그리기
         self.draw_combo_ui(self.screen)
         
+        # 업적 알림 그리기
+        self.draw_achievement_notifications()
+        
+        # 상점 그리기
+        if self.shop.open:
+            self.shop.draw(self.screen)
+        
         # 일시정지 화면
         if self.paused:
             self.draw_pause_menu()
@@ -1918,8 +2400,14 @@ class Game:
             pygame.draw.rect(self.screen, DARKER_SURFACE, card_rect, border_radius=20)
             pygame.draw.rect(self.screen, NEON_PINK, card_rect, 3, border_radius=20)
             
-            # 게임 오버 타이틀 (네온 효과)
-            game_over_text = self.safe_render_text(self.large_font, get_text('game_over'), NEON_PINK)
+            # 게임 오버 타이틀 (모드별 메시지)
+            if self.mode_manager.current_mode == GAME_MODE_PUZZLE and self.mode_manager.is_game_complete(self):
+                game_over_text = self.safe_render_text(self.large_font, "🎉 PUZZLE SOLVED!", NEON_GREEN)
+            elif self.mode_manager.current_mode == GAME_MODE_TIME_ATTACK:
+                game_over_text = self.safe_render_text(self.large_font, "⏰ TIME UP!", NEON_ORANGE)
+            else:
+                game_over_text = self.safe_render_text(self.large_font, get_text('game_over'), NEON_PINK)
+            
             game_over_rect = game_over_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 100))
             self.screen.blit(game_over_text, game_over_rect)
             
@@ -2378,6 +2866,191 @@ class Game:
         back_text = self.safe_render_text(self.small_font, "ESC: Back to Menu", theme_colors['text_secondary'])
         back_rect = back_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 30))
         self.screen.blit(back_text, back_rect)
+    
+    def draw_mode_select(self):
+        """모드 선택 화면 그리기"""
+        # 테마 배경
+        self.draw_themed_background(self.screen)
+        
+        theme_colors = self.theme_manager.get_theme_colors(self.current_theme)
+        
+        # 모드 선택 메인 카드
+        mode_card = pygame.Rect(20, 50, SCREEN_WIDTH - 40, SCREEN_HEIGHT - 100)
+        pygame.draw.rect(self.screen, theme_colors['darker_surface'], mode_card, border_radius=20)
+        pygame.draw.rect(self.screen, theme_colors['accent'], mode_card, 3, border_radius=20)
+        
+        # 제목
+        title_text = self.safe_render_text(self.large_font, "🎯 CHALLENGE MODES", theme_colors['accent'])
+        title_rect = title_text.get_rect(center=(SCREEN_WIDTH//2, 90))
+        self.screen.blit(title_text, title_rect)
+        
+        # 모드 목록
+        modes = [
+            ("Classic", "Standard game mode with unlimited time"),
+            ("Time Attack", f"Clear blocks in {TIME_ATTACK_DURATION} seconds"),
+            ("Survival", "Survive with increasing ball speed"),
+            ("Puzzle", f"Clear all blocks with {PUZZLE_MODE_BALLS} balls")
+        ]
+        
+        for i, (mode_name, description) in enumerate(modes):
+            y = 150 + i * 100
+            
+            # 모드 카드
+            mode_item_card = pygame.Rect(40, y - 35, SCREEN_WIDTH - 80, 80)
+            
+            if i == self.mode_select_index:
+                # 선택된 모드
+                pygame.draw.rect(self.screen, theme_colors['surface'], mode_item_card, border_radius=12)
+                pygame.draw.rect(self.screen, theme_colors['accent'], mode_item_card, 2, border_radius=12)
+                name_color = theme_colors['accent']
+                desc_color = theme_colors['text']
+                
+                # 선택 인디케이터
+                indicator = pygame.Rect(45, y - 30, 4, 70)
+                pygame.draw.rect(self.screen, theme_colors['accent'], indicator, border_radius=2)
+            else:
+                pygame.draw.rect(self.screen, theme_colors['darker_surface'], mode_item_card, border_radius=12)
+                pygame.draw.rect(self.screen, theme_colors['text_secondary'], mode_item_card, 1, border_radius=12)
+                name_color = theme_colors['text']
+                desc_color = theme_colors['text_secondary']
+            
+            # 모드 이름
+            name_surface = self.safe_render_text(self.font, mode_name, name_color)
+            name_rect = name_surface.get_rect(center=(SCREEN_WIDTH//2, y - 10))
+            self.screen.blit(name_surface, name_rect)
+            
+            # 모드 설명
+            desc_surface = self.safe_render_text(self.small_font, description, desc_color)
+            desc_rect = desc_surface.get_rect(center=(SCREEN_WIDTH//2, y + 15))
+            self.screen.blit(desc_surface, desc_rect)
+        
+        # 조작 안내
+        help_text = self.safe_render_text(self.small_font, "↑↓: Select • ENTER: Start • ESC: Back", theme_colors['text_secondary'])
+        help_rect = help_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 30))
+        self.screen.blit(help_text, help_rect)
+    
+    def draw_achievements(self):
+        """업적 화면 그리기"""
+        # 테마 배경
+        self.draw_themed_background(self.screen)
+        
+        theme_colors = self.theme_manager.get_theme_colors(self.current_theme)
+        
+        # 업적 메인 카드
+        achievement_card = pygame.Rect(20, 50, SCREEN_WIDTH - 40, SCREEN_HEIGHT - 100)
+        pygame.draw.rect(self.screen, theme_colors['darker_surface'], achievement_card, border_radius=20)
+        pygame.draw.rect(self.screen, theme_colors['accent'], achievement_card, 3, border_radius=20)
+        
+        # 제목과 진행률
+        title_text = self.safe_render_text(self.large_font, "🏆 ACHIEVEMENTS", theme_colors['accent'])
+        title_rect = title_text.get_rect(center=(SCREEN_WIDTH//2, 80))
+        self.screen.blit(title_text, title_rect)
+        
+        # 진행률 표시
+        completion = self.achievement_manager.get_completion_percentage()
+        progress_text = f"{self.achievement_manager.get_unlocked_count()}/{self.achievement_manager.get_total_count()} ({completion:.0f}%)"
+        progress_surface = self.safe_render_text(self.small_font, progress_text, theme_colors['text_secondary'])
+        progress_rect = progress_surface.get_rect(center=(SCREEN_WIDTH//2, 105))
+        self.screen.blit(progress_surface, progress_rect)
+        
+        # 업적 목록 (스크롤 가능하도록 일부만 표시)
+        start_y = 130
+        achievement_height = 45
+        visible_achievements = 10
+        
+        achievements_list = list(self.achievement_manager.achievements.values())
+        
+        for i, achievement in enumerate(achievements_list[:visible_achievements]):
+            y = start_y + i * achievement_height
+            
+            # 업적 카드
+            achievement_item_rect = pygame.Rect(30, y, SCREEN_WIDTH - 60, achievement_height - 5)
+            
+            if achievement['unlocked']:
+                # 달성된 업적
+                pygame.draw.rect(self.screen, theme_colors['surface'], achievement_item_rect, border_radius=8)
+                pygame.draw.rect(self.screen, NEON_GREEN, achievement_item_rect, 2, border_radius=8)
+                name_color = NEON_GREEN
+                desc_color = theme_colors['text']
+                progress_color = NEON_GREEN
+            else:
+                # 미달성 업적
+                pygame.draw.rect(self.screen, theme_colors['darker_surface'], achievement_item_rect, border_radius=8)
+                pygame.draw.rect(self.screen, theme_colors['text_secondary'], achievement_item_rect, 1, border_radius=8)
+                name_color = theme_colors['text_secondary']
+                desc_color = theme_colors['text_secondary']
+                progress_color = theme_colors['text_secondary']
+            
+            # 업적 아이콘과 이름
+            icon_name = f"{achievement['icon']} {achievement['name']}"
+            name_surface = self.safe_render_text(self.small_font, icon_name, name_color)
+            self.screen.blit(name_surface, (40, y + 5))
+            
+            # 업적 설명
+            desc_surface = self.safe_render_text(self.small_font, achievement['description'], desc_color)
+            self.screen.blit(desc_surface, (40, y + 22))
+            
+            # 진행도 표시
+            if not achievement['unlocked'] and achievement['target'] > 1:
+                progress_text = f"{achievement['progress']}/{achievement['target']}"
+                progress_surface = self.safe_render_text(self.small_font, progress_text, progress_color)
+                progress_rect = progress_surface.get_rect()
+                progress_rect.right = SCREEN_WIDTH - 40
+                progress_rect.centery = y + achievement_height // 2
+                self.screen.blit(progress_surface, progress_rect)
+        
+        # 뒤로가기 안내
+        back_text = self.safe_render_text(self.small_font, "ESC: Back to Menu", theme_colors['text_secondary'])
+        back_rect = back_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 30))
+        self.screen.blit(back_text, back_rect)
+    
+    def draw_achievement_notifications(self):
+        """업적 달성 알림 그리기"""
+        if not self.achievement_manager.notifications:
+            return
+        
+        theme_colors = self.theme_manager.get_theme_colors(self.current_theme)
+        current_time = pygame.time.get_ticks()
+        
+        for i, notification in enumerate(self.achievement_manager.notifications):
+            achievement = notification['achievement']
+            elapsed = current_time - notification['timestamp']
+            
+            # 페이드 인/아웃 효과
+            if elapsed < 500:  # 페이드 인
+                alpha = int(255 * (elapsed / 500))
+            elif elapsed > notification['duration'] - 500:  # 페이드 아웃
+                alpha = int(255 * ((notification['duration'] - elapsed) / 500))
+            else:
+                alpha = 255
+            
+            # 알림 위치 (여러 개일 경우 위로 쌓임)
+            y = 200 + i * 80
+            
+            # 알림 카드
+            notification_rect = pygame.Rect(20, y, SCREEN_WIDTH - 40, 70)
+            notification_surface = pygame.Surface((SCREEN_WIDTH - 40, 70), pygame.SRCALPHA)
+            green_color = (NEON_GREEN[0], NEON_GREEN[1], NEON_GREEN[2], min(alpha, 200))
+            notification_surface.fill(green_color)
+            self.screen.blit(notification_surface, (20, y))
+            
+            pygame.draw.rect(self.screen, NEON_GREEN, notification_rect, 2, border_radius=10)
+            
+            # "Achievement Unlocked!" 텍스트
+            unlock_text = self.safe_render_text(self.small_font, "🎉 ACHIEVEMENT UNLOCKED!", WHITE)
+            unlock_rect = unlock_text.get_rect(center=(SCREEN_WIDTH//2, y + 15))
+            self.screen.blit(unlock_text, unlock_rect)
+            
+            # 업적 이름
+            achievement_text = f"{achievement['icon']} {achievement['name']}"
+            achievement_surface = self.safe_render_text(self.font, achievement_text, WHITE)
+            achievement_rect = achievement_surface.get_rect(center=(SCREEN_WIDTH//2, y + 35))
+            self.screen.blit(achievement_surface, achievement_rect)
+            
+            # 업적 설명
+            desc_surface = self.safe_render_text(self.small_font, achievement['description'], WHITE)
+            desc_rect = desc_surface.get_rect(center=(SCREEN_WIDTH//2, y + 55))
+            self.screen.blit(desc_surface, desc_rect)
         
     def run(self):
         running = True
@@ -2387,4 +3060,4 @@ class Game:
             self.draw()
             self.clock.tick(FPS)
             
-        pygame.quit() 
+        pygame.quit()
