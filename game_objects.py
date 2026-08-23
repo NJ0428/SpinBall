@@ -1,7 +1,8 @@
 import pygame
+import logging
 import math
 import random
-from constants import *
+from constants import Colors, GameSettings, UI, Ball, Block, Bonus, Paddle, Brick, Game, Combo, Particle, Theme, Replay, Stats, Achievement, Shop
 from language import get_text, set_language, get_current_language, language_manager
 from database import db_manager
 from shop import Shop
@@ -9,6 +10,7 @@ import datetime
 import json
 import time
 import os
+from utils import safe_render_text
 
 
 class ReplayManager:
@@ -65,7 +67,8 @@ class ReplayManager:
             with open(f"replays/{filename}.json", 'w') as f:
                 json.dump(replay_data, f)
             return True
-        except:
+        except (IOError, json.JSONDecodeError) as e:
+            logging.error(f"리플레이 파일 저장 오류: {e}")
             return False
     
     def load_replay(self, filename):
@@ -76,7 +79,8 @@ class ReplayManager:
             self.actions = replay_data['actions']
             self.current_action_index = 0
             return replay_data
-        except:
+        except (IOError, json.JSONDecodeError) as e:
+            logging.error(f"리플레이 파일 로드 오류: {e}")
             return None
     
     def start_playback(self):
@@ -131,16 +135,16 @@ class StatisticsManager:
         try:
             with open('stats.json', 'r') as f:
                 saved_stats = json.load(f)
-                self.stats.update(saved_stats)
-        except:
+        except (IOError, json.JSONDecodeError) as e:
+            logging.warning(f"통계 파일 로드 오류: {e}. 기본값으로 시작합니다.")
             pass  # 파일이 없으면 기본값 사용
     
     def save_stats(self):
         """통계 파일 저장"""
         try:
             with open('stats.json', 'w') as f:
-                json.dump(self.stats, f)
-        except:
+            except IOError as e:
+            logging.error(f"통계 파일 저장 오류: {e}")
             pass
     
     def update_game_end(self, score, round_num, blocks_destroyed_by_type, combos, highest_combo, powerups_used, bonus_collected):
@@ -296,7 +300,8 @@ class AchievementManager:
                 for achievement_id, data in saved_achievements.items():
                     if achievement_id in self.achievements:
                         self.achievements[achievement_id].update(data)
-        except:
+        except (IOError, json.JSONDecodeError) as e:
+            logging.warning(f"업적 파일 로드 오류: {e}. 기본값으로 시작합니다.")
             pass  # 파일이 없으면 기본값 사용
     
     def save_achievements(self):
@@ -304,7 +309,8 @@ class AchievementManager:
         try:
             with open('achievements.json', 'w') as f:
                 json.dump(self.achievements, f)
-        except:
+        except IOError as e:
+            logging.error(f"업적 파일 저장 오류: {e}")
             pass
     
     def check_achievement(self, achievement_id, value=1):
@@ -1050,14 +1056,16 @@ class Block:
             shadow_rect = shadow.get_rect(center=(self.x + BLOCK_SIZE//2 + 1, self.y + BLOCK_SIZE//2 + 6))
             screen.blit(shadow, shadow_rect)
             screen.blit(text, text_rect)
-        except:
+        except pygame.error as e:
+            logging.error(f"체력 텍스트 렌더링 오류: {e}")
             # 폰트 렌더링 실패 시 기본 처리
             try:
                 default_font = pygame.font.Font(None, 20)
                 text = default_font.render(str(self.health), True, WHITE)
                 text_rect = text.get_rect(center=(self.x + BLOCK_SIZE//2, self.y + BLOCK_SIZE//2))
                 screen.blit(text, text_rect)
-            except:
+            except pygame.error as e:
+                logging.error(f"대체 체력 텍스트 렌더링 오류: {e}")
                 pass  # 텍스트 렌더링 완전 실패 시 숫자 없이 표시
 
 
@@ -1124,21 +1132,29 @@ class BonusBall:
                 text = font.render("+1", True, BLACK)
                 text_rect = text.get_rect(center=(int(self.x), int(self.y)))
                 screen.blit(text, text_rect)
-            except:
+            except pygame.error as e:
+                logging.error(f"보너스 볼 텍스트 렌더링 오류: {e}")
                 # 폰트 렌더링 실패 시 기본 처리
                 try:
                     default_font = pygame.font.Font(None, 16)
                     text = default_font.render("+1", True, BLACK)
                     text_rect = text.get_rect(center=(int(self.x), int(self.y)))
                     screen.blit(text, text_rect)
-                except:
+                except pygame.error as e:
+                    logging.error(f"대체 보너스 볼 텍스트 렌더링 오류: {e}")
                     pass  # 텍스트 렌더링 완전 실패 시 텍스트 없이 표시
 
 
 class Game:
     def __init__(self):
+        self._init_pygame()
+        self._init_settings()
+        self._init_managers()
+        self._init_game_state()
+
+    def _init_pygame(self):
         pygame.init()
-        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+        self.screen = pygame.display.set_mode((GameSettings.SCREEN_WIDTH, GameSettings.SCREEN_HEIGHT))
         pygame.display.set_caption("볼즈 게임")
         self.clock = pygame.time.Clock()
         
@@ -1146,59 +1162,58 @@ class Game:
         font_loaded = False
         self.current_font_path = None
         
-        # Windows 한글 폰트 경로들 (우선순위 순)
-        font_paths = [
-            "C:/Windows/Fonts/malgun.ttf",      # 맑은고딕
-            "C:/Windows/Fonts/malgunbd.ttf",    # 맑은고딕 Bold
-            "C:/Windows/Fonts/gulim.ttc",       # 굴림
-            "C:/Windows/Fonts/batang.ttc",      # 바탕
-            "C:/Windows/Fonts/dotum.ttc",       # 돋움
-            "C:/Windows/Fonts/gungsuh.ttc",     # 궁서
-            "malgun.ttf",                       # 상대경로 시도
-            "gulim.ttc",
-            "batang.ttc",
+        # 선호하는 한글 폰트 목록
+        preferred_fonts = [
+            "malgun gothic", "gulim", "dotum", "batang",  # 윈도우
+            "apple sd gothic neo",  # macOS
+            "nanumgothic", "noto sans cjk kr"  # 리눅스
         ]
         
-        # 한글 폰트 로딩 시도
-        for font_path in font_paths:
-            try:
-                # 테스트 폰트 생성
-                test_font = pygame.font.Font(font_path, 24)
-                # 한글 렌더링 테스트
-                test_surface = test_font.render("한글테스트", True, (255, 255, 255))
-                
-                # 성공하면 모든 폰트 생성
-                self.font = pygame.font.Font(font_path, 24)
-                self.small_font = pygame.font.Font(font_path, 18)
-                self.large_font = pygame.font.Font(font_path, 28)
-                self.title_font = pygame.font.Font(font_path, TITLE_FONT_SIZE)
-                self.menu_font = pygame.font.Font(font_path, MENU_FONT_SIZE)
-                
-                self.current_font_path = font_path
-                font_loaded = True
-                print(f"한글 폰트 로딩 성공: {font_path}")
-                break
-            except Exception as e:
-                continue
-                
+        # 시스템에서 폰트 찾기
+        for font_name in preferred_fonts:
+            font_path = pygame.font.match_font(font_name)
+            if font_path:
+                try:
+                    # 테스트 폰트 생성
+                    test_font = pygame.font.Font(font_path, 24)
+                    test_surface = test_font.render("한글테스트", True, (255, 255, 255))
+                    
+                    # 성공하면 모든 폰트 생성
+                    self.font = pygame.font.Font(font_path, 24)
+                    self.small_font = pygame.font.Font(font_path, 18)
+                    self.large_font = pygame.font.Font(font_path, 28)
+                    self.title_font = pygame.font.Font(font_path, UI.TITLE_FONT_SIZE)
+                    self.menu_font = pygame.font.Font(font_path, UI.MENU_FONT_SIZE)
+                    
+                    self.current_font_path = font_path
+                    font_loaded = True
+                    print(f"한글 폰트 로딩 성공: {font_path}")
+                    break
+                except pygame.error as e:
+                    logging.warning(f"폰트 로딩 실패 '{font_path}': {e}")
+                    continue
+        
         # 한글 폰트 로딩 실패 시 시스템 기본 폰트 사용
         if not font_loaded:
-            print("한글 폰트 로딩 실패, 기본 폰트 사용")
+            print("선호하는 한글 폰트 로딩 실패, 시스템 기본 폰트 사용")
             try:
                 # 시스템 기본 폰트로 대체
                 self.font = pygame.font.SysFont('arial', 24)
                 self.small_font = pygame.font.SysFont('arial', 18)
                 self.large_font = pygame.font.SysFont('arial', 28)
-                self.title_font = pygame.font.SysFont('arial', TITLE_FONT_SIZE)
-                self.menu_font = pygame.font.SysFont('arial', MENU_FONT_SIZE)
-            except:
+                self.title_font = pygame.font.SysFont('arial', UI.TITLE_FONT_SIZE)
+                self.menu_font = pygame.font.SysFont('arial', UI.MENU_FONT_SIZE)
+                font_loaded = True
+            except pygame.error as e:
+                logging.error(f"시스템 폰트 로딩 실패: {e}")
                 # 최후의 수단: pygame 기본 폰트
                 self.font = pygame.font.Font(None, 32)
                 self.small_font = pygame.font.Font(None, 24)
                 self.large_font = pygame.font.Font(None, 36)
-                self.title_font = pygame.font.Font(None, TITLE_FONT_SIZE + 8)
-                self.menu_font = pygame.font.Font(None, MENU_FONT_SIZE + 8)
-        
+                self.title_font = pygame.font.Font(None, UI.TITLE_FONT_SIZE + 8)
+                self.menu_font = pygame.font.Font(None, UI.MENU_FONT_SIZE + 8)
+
+    def _init_settings(self):
         # 설정 값들
         self.settings = {
             "ball_speed": 11,
@@ -1210,7 +1225,25 @@ class Game:
         
         # 언어 설정 초기화
         set_language(self.settings["language"])
+
+    def _init_managers(self):
+        # 테마 시스템
+        self.theme_manager = ThemeManager()
+        self.current_theme = self.theme_manager.get_seasonal_theme()
         
+        # 리플레이 시스템
+        self.replay_manager = ReplayManager()
+        
+        # 통계 시스템
+        self.stats_manager = StatisticsManager()
+        
+        # 게임 모드 시스템
+        self.mode_manager = GameModeManager()
+        
+        # 업적 시스템
+        self.achievement_manager = AchievementManager()
+
+    def _init_game_state(self):
         # 플레이어 이름 입력 상태
         self.entering_name = False
         self.player_name = ""
@@ -1221,7 +1254,7 @@ class Game:
         self.score_saved = False
         
         # 게임 상태 관리
-        self.game_state = GAME_STATE_TITLE
+        self.game_state = Game.STATE_TITLE
         self.selected_menu = 0  # 선택된 메뉴 항목
         self.settings_menu_selected = 0  # 설정 메뉴에서 선택된 항목
         
@@ -1236,67 +1269,25 @@ class Game:
         # 파티클 시스템
         self.particles = []
         
-        # 테마 시스템
-        self.theme_manager = ThemeManager()
-        self.current_theme = self.theme_manager.get_seasonal_theme()
-        
         # 일시정지 시스템
         self.paused = False
         self.pause_menu_selected = 0
         
-        # 리플레이 시스템
-        self.replay_manager = ReplayManager()
-        
-        # 통계 시스템
-        self.stats_manager = StatisticsManager()
         self.blocks_destroyed_by_type = {'normal': 0, 'bomb': 0, 'shield': 0, 'ghost': 0}
         self.combos_this_game = 0
         self.highest_combo_this_game = 0
         self.powerups_used_this_game = 0
         
-        # 게임 모드 시스템
-        self.mode_manager = GameModeManager()
         self.mode_select_index = 0
         
-        # 업적 시스템
-        self.achievement_manager = AchievementManager()
         self.blocks_destroyed_this_shot = 0
         
         self.reset_game()
         
         self.shop = Shop(self.font, self.score)
         self.active_powerups = {1: False, 2: False, 3: False}  # 파워볼, 스피드볼, 매그넘볼
+
         
-    def safe_render_text(self, font, text, color, fallback_font=None):
-        """안전한 텍스트 렌더링 (한글 깨짐 방지)"""
-        try:
-            # 텍스트가 None이거나 빈 문자열인 경우 처리
-            if text is None:
-                text = ""
-            text = str(text)
-            return font.render(text, True, color)
-        except Exception as e:
-            # 폰트 렌더링 실패 시 대체 폰트 사용
-            if fallback_font:
-                try:
-                    return fallback_font.render(str(text), True, color)
-                except:
-                    pass
-            # 최후의 수단: 기본 폰트
-            try:
-                default_font = pygame.font.Font(None, 24)
-                return default_font.render(str(text), True, color)
-            except:
-                # 텍스트를 ASCII로 변환
-                try:
-                    safe_text = str(text).encode('ascii', 'ignore').decode('ascii')
-                    default_font = pygame.font.Font(None, 24)
-                    return default_font.render(safe_text if safe_text else "Text", True, color)
-                except:
-                    # 최종 대안: 빈 서피스 반환
-                    surface = pygame.Surface((50, 20), pygame.SRCALPHA)
-                    surface.fill((0, 0, 0, 0))
-                    return surface
         
     def get_menu_items(self):
         """현재 언어에 따른 메뉴 항목들 반환"""
@@ -1489,8 +1480,8 @@ class Game:
                     self.score_saved = True
                     print(f"점수 저장 완료: {self.player_name} - {self.score}점")
                 return success
-            except Exception as e:
-                print(f"점수 저장 중 오류 발생: {e}")
+            except sqlite3.Error as e:
+                logging.error(f"점수 저장 중 오류 발생: {e}")
                 return False
         return False
     
@@ -1498,8 +1489,8 @@ class Game:
         """랭킹 조회"""
         try:
             return db_manager.get_top_scores(limit)
-        except Exception as e:
-            print(f"랭킹 조회 중 오류 발생: {e}")
+        except sqlite3.Error as e:
+            logging.error(f"랭킹 조회 중 오류 발생: {e}")
             return []
     
     def use_super_ball(self):
