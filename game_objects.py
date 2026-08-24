@@ -143,9 +143,9 @@ class StatisticsManager:
         """통계 파일 저장"""
         try:
             with open('stats.json', 'w') as f:
-            except IOError as e:
+                json.dump(self.stats, f)
+        except IOError as e:
             logging.error(f"통계 파일 저장 오류: {e}")
-            pass
     
     def update_game_end(self, score, round_num, blocks_destroyed_by_type, combos, highest_combo, powerups_used, bonus_collected):
         """게임 종료 시 통계 업데이트"""
@@ -1642,9 +1642,11 @@ class Game:
                     # 타이틀 화면에서 마우스 위치에 따라 메뉴 선택
                     mouse_x, mouse_y = event.pos
                     menu_items = self.get_menu_items()
+                    _title_menu_top = 226  # title_y(108) + 118
+                    _title_item_h = 52
                     for i in range(len(menu_items)):
-                        y = MENU_START_Y + i * MENU_ITEM_HEIGHT
-                        if y - 20 <= mouse_y <= y + 20:
+                        my = _title_menu_top + i * _title_item_h
+                        if my <= mouse_y <= my + 44:
                             self.selected_menu = i
                             break
             elif event.type == pygame.MOUSEBUTTONDOWN:
@@ -1652,9 +1654,11 @@ class Game:
                     # 타이틀 화면에서 마우스 클릭으로 메뉴 선택
                     mouse_x, mouse_y = event.pos
                     menu_items = self.get_menu_items()
+                    _title_menu_top = 226
+                    _title_item_h = 52
                     for i in range(len(menu_items)):
-                        y = MENU_START_Y + i * MENU_ITEM_HEIGHT
-                        if y - 20 <= mouse_y <= y + 20:
+                        my = _title_menu_top + i * _title_item_h
+                        if my <= mouse_y <= my + 44:
                             self.selected_menu = i
                             # 선택된 메뉴 실행
                             if self.selected_menu == 0:  # 게임시작 (클래식 모드)
@@ -2257,88 +2261,194 @@ class Game:
         pygame.display.flip()
         
     def draw_title(self):
-        # 다크 그라데이션 배경
-        for y in range(SCREEN_HEIGHT):
-            color_ratio = y / SCREEN_HEIGHT
-            r = int(15 + color_ratio * 10)  # 15-25
-            g = int(15 + color_ratio * 10)  # 15-25  
-            b = int(23 + color_ratio * 12)  # 23-35
-            pygame.draw.line(self.screen, (r, g, b), (0, y), (SCREEN_WIDTH, y))
-        
-        # 네온 파티클 효과 (배경 장식)
         current_time = pygame.time.get_ticks()
-        for i in range(20):
-            x = (current_time // 50 + i * 20) % (SCREEN_WIDTH + 100) - 50
-            y = 50 + i * 30
-            alpha = int(128 + 127 * math.sin(current_time / 1000 + i))
-            color = (*NEON_CYAN[:3], alpha)
-            if hasattr(pygame, 'gfxdraw'):
-                pygame.gfxdraw.filled_circle(self.screen, x, y, 2, color)
-        
-        # 게임 타이틀 (네온 효과)
-        title_text = self.safe_render_text(self.title_font, "SpinBall", NEON_CYAN)
-        title_rect = title_text.get_rect(center=(SCREEN_WIDTH//2, 120))
-        
-        # 네온 글로우 효과
-        for offset in range(8, 0, -2):
-            glow_color = (*NEON_CYAN, 30)
-            glow_text = self.title_font.render("SpinBall", True, NEON_CYAN)
-            glow_rect = glow_text.get_rect(center=(SCREEN_WIDTH//2, 120))
-            # 글로우는 여러 레이어로 구현
-            
-        self.screen.blit(title_text, title_rect)
-        
-        # 서브타이틀
-        subtitle = self.safe_render_text(self.small_font, "Modern Block Breaker", TEXT_SECONDARY)
-        subtitle_rect = subtitle.get_rect(center=(SCREEN_WIDTH//2, 160))
-        self.screen.blit(subtitle, subtitle_rect)
-        
-        # 메뉴 항목들 (카드 스타일)
-        menu_items = self.get_menu_items()
-        for i, item in enumerate(menu_items):
-            y = MENU_START_Y + i * MENU_ITEM_HEIGHT
-            
-            # 메뉴 카드 배경
-            card_rect = pygame.Rect(30, y - 20, SCREEN_WIDTH - 60, 45)
-            
-            if i == self.selected_menu:
-                # 선택된 메뉴: 네온 테두리와 글로우
-                pygame.draw.rect(self.screen, DARKER_SURFACE, card_rect, border_radius=12)
-                pygame.draw.rect(self.screen, NEON_CYAN, card_rect, 2, border_radius=12)
-                text_color = NEON_CYAN
-                
-                # 선택 인디케이터
-                indicator_rect = pygame.Rect(35, y - 15, 4, 35)
-                pygame.draw.rect(self.screen, NEON_CYAN, indicator_rect, border_radius=2)
-            else:
-                # 일반 메뉴: 서브틀한 배경
-                pygame.draw.rect(self.screen, DARK_SURFACE, card_rect, border_radius=12)
-                pygame.draw.rect(self.screen, DARK_GRAY, card_rect, 1, border_radius=12)
-                text_color = WHITE
-            
-            # 메뉴 텍스트 (한글 지원)
+
+        # ── 배경: 세로 그라데이션 (딥 네이비 → 블루-블랙) ──────────────────
+        for py in range(SCREEN_HEIGHT):
+            t = py / SCREEN_HEIGHT
+            r = int(8 + t * 14)
+            g = int(8 + t * 10)
+            b = int(22 + t * 20)
+            pygame.draw.line(self.screen, (r, g, b), (0, py), (SCREEN_WIDTH, py))
+
+        # ── 배경 격자 패턴 (사이버펑크 느낌) ─────────────────────────────────
+        grid_surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        grid_alpha = 18
+        for gx in range(0, SCREEN_WIDTH, 40):
+            pygame.draw.line(grid_surf, (*NEON_CYAN, grid_alpha), (gx, 0), (gx, SCREEN_HEIGHT))
+        for gy in range(0, SCREEN_HEIGHT, 40):
+            pygame.draw.line(grid_surf, (*NEON_CYAN, grid_alpha), (0, gy), (SCREEN_WIDTH, gy))
+        self.screen.blit(grid_surf, (0, 0))
+
+        # ── 배경 플로팅 오브 (대형 글로우 원들) ──────────────────────────────
+        orb_data = [
+            (80,  180, 90,  NEON_CYAN,   0.0008, 12),
+            (320, 400, 70,  NEON_PURPLE, 0.0006, 18),
+            (200, 580, 55,  NEON_PINK,   0.001,  10),
+        ]
+        for ox, oy, orad, ocol, ospeed, oamp in orb_data:
+            float_y = oy + int(oamp * math.sin(current_time * ospeed))
+            for layer in range(4, 0, -1):
+                orb_surf = pygame.Surface((orad * 2 * layer, orad * 2 * layer), pygame.SRCALPHA)
+                orb_alpha = max(0, 18 - layer * 4)
+                pygame.draw.circle(orb_surf, (*ocol, orb_alpha),
+                                   (orad * layer, orad * layer), orad * layer)
+                self.screen.blit(orb_surf,
+                                 (ox - orad * layer, float_y - orad * layer))
+            pygame.draw.circle(self.screen, ocol, (ox, float_y), 3)
+
+        # ── 스타 파티클 (배경 별) ─────────────────────────────────────────────
+        random.seed(42)
+        for i in range(35):
+            sx = random.randint(0, SCREEN_WIDTH)
+            sy = random.randint(0, SCREEN_HEIGHT - 120)
+            twinkle = 0.5 + 0.5 * math.sin(current_time * 0.002 + i * 1.3)
+            star_alpha = int(60 + 120 * twinkle)
+            star_surf = pygame.Surface((4, 4), pygame.SRCALPHA)
+            pygame.draw.circle(star_surf, (200, 220, 255, star_alpha), (2, 2), 2)
+            self.screen.blit(star_surf, (sx - 2, sy - 2))
+        random.seed()
+
+        # ── 타이틀 로고 영역 ──────────────────────────────────────────────────
+        title_y = 108
+        pulse = 0.85 + 0.15 * math.sin(current_time * 0.002)
+        glow_col = tuple(int(c * pulse) for c in NEON_CYAN)
+
+        # 타이틀 뒤 글로우 레이어 (블러 효과 대체)
+        for goffset in [12, 8, 5, 3]:
+            glow_surf = pygame.Surface((SCREEN_WIDTH, 80), pygame.SRCALPHA)
+            glow_alpha = max(0, int(25 - goffset * 1.8))
             try:
-                if self.current_font_path:
-                    menu_font = pygame.font.Font(self.current_font_path, MENU_FONT_SIZE)
-                else:
-                    menu_font = self.menu_font
-            except:
-                menu_font = self.menu_font
-            
-            menu_text = self.safe_render_text(menu_font, item, text_color)
-            menu_rect = menu_text.get_rect(center=(SCREEN_WIDTH//2, y))
+                glow_font = pygame.font.Font(self.current_font_path, UI.TITLE_FONT_SIZE + goffset * 2) \
+                    if self.current_font_path else self.title_font
+            except Exception:
+                glow_font = self.title_font
+            gt = glow_font.render("SpinBall", True, (*NEON_CYAN, glow_alpha))
+            gr = gt.get_rect(center=(SCREEN_WIDTH // 2, 40))
+            glow_surf.blit(gt, gr)
+            self.screen.blit(glow_surf, (0, title_y - 40))
+
+        title_text = self.safe_render_text(self.title_font, "SpinBall", glow_col)
+        title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, title_y))
+        self.screen.blit(title_text, title_rect)
+
+        # 타이틀 아래 네온 라인
+        line_w = int(200 + 40 * pulse)
+        line_alpha = int(180 * pulse)
+        line_surf = pygame.Surface((line_w, 3), pygame.SRCALPHA)
+        for lx in range(line_w):
+            la = int(line_alpha * math.sin(math.pi * lx / line_w))
+            pygame.draw.line(line_surf, (*NEON_CYAN, la), (lx, 0), (lx, 2))
+        self.screen.blit(line_surf, (SCREEN_WIDTH // 2 - line_w // 2, title_y + 30))
+
+        # 서브타이틀
+        subtitle_col = (160, 200, 220)
+        subtitle = self.safe_render_text(self.small_font, "◈  Modern Block Breaker  ◈", subtitle_col)
+        subtitle_rect = subtitle.get_rect(center=(SCREEN_WIDTH // 2, title_y + 52))
+        self.screen.blit(subtitle, subtitle_rect)
+
+        # ── 최고 점수 배지 ────────────────────────────────────────────────────
+        try:
+            top_scores = db_manager.get_top_scores(1)
+            best_score_val = top_scores[0][1] if top_scores else 0
+        except Exception:
+            best_score_val = 0
+
+        badge_rect = pygame.Rect(SCREEN_WIDTH // 2 - 90, title_y + 70, 180, 32)
+        badge_surf = pygame.Surface((180, 32), pygame.SRCALPHA)
+        badge_surf.fill((0, 0, 0, 0))
+        pygame.draw.rect(badge_surf, (255, 215, 0, 30), (0, 0, 180, 32), border_radius=16)
+        pygame.draw.rect(badge_surf, (255, 215, 0, 120), (0, 0, 180, 32), 1, border_radius=16)
+        self.screen.blit(badge_surf, badge_rect.topleft)
+        best_text = self.safe_render_text(self.small_font,
+                                          f"BEST  {best_score_val:,}" if best_score_val > 0 else "BEST  ---",
+                                          (255, 215, 0))
+        best_rect = best_text.get_rect(center=badge_rect.center)
+        self.screen.blit(best_text, best_rect)
+
+        # ── 메뉴 아이템 ───────────────────────────────────────────────────────
+        menu_icons = ["▶", "◆", "⚙", "★", "✖"]
+        menu_items = self.get_menu_items()
+        item_h = 52
+        total_h = len(menu_items) * item_h
+        menu_top = title_y + 118
+
+        try:
+            mfont = pygame.font.Font(self.current_font_path, 22) if self.current_font_path else self.menu_font
+        except Exception:
+            mfont = self.menu_font
+
+        for i, item in enumerate(menu_items):
+            my = menu_top + i * item_h
+            card_rect = pygame.Rect(24, my, SCREEN_WIDTH - 48, 44)
+            icon = menu_icons[i] if i < len(menu_icons) else "•"
+
+            if i == self.selected_menu:
+                # 선택 카드: 반투명 네온 배경 + 글로우 테두리
+                sel_pulse = 0.7 + 0.3 * math.sin(current_time * 0.004)
+                card_surf = pygame.Surface((card_rect.w, card_rect.h), pygame.SRCALPHA)
+                card_surf.fill((*NEON_CYAN, int(28 * sel_pulse)))
+                self.screen.blit(card_surf, card_rect.topleft)
+
+                # 외곽 글로우 (3겹)
+                for bw, ba in [(4, 40), (2, 80), (1, 255)]:
+                    bc = tuple(int(c * sel_pulse) for c in NEON_CYAN)
+                    pygame.draw.rect(self.screen, bc, card_rect, bw, border_radius=14)
+
+                # 왼쪽 액센트 바
+                bar_rect = pygame.Rect(24, my + 6, 4, 32)
+                pygame.draw.rect(self.screen, NEON_CYAN, bar_rect, border_radius=2)
+
+                # 아이콘
+                icon_surf = self.safe_render_text(self.small_font, icon, NEON_CYAN)
+                self.screen.blit(icon_surf, (38, my + 13))
+
+                text_color = WHITE
+            else:
+                # 일반 카드: 미묘한 다크 배경
+                card_surf = pygame.Surface((card_rect.w, card_rect.h), pygame.SRCALPHA)
+                card_surf.fill((255, 255, 255, 8))
+                self.screen.blit(card_surf, card_rect.topleft)
+                pygame.draw.rect(self.screen, (60, 70, 90, 100), card_rect, 1, border_radius=14)
+
+                icon_col = (80, 100, 120)
+                icon_surf = self.safe_render_text(self.small_font, icon, icon_col)
+                self.screen.blit(icon_surf, (38, my + 13))
+
+                text_color = (200, 210, 225)
+
+            menu_text = self.safe_render_text(mfont, item, text_color)
+            menu_rect = menu_text.get_rect(midleft=(62, my + 22))
             self.screen.blit(menu_text, menu_rect)
-        
-        # 조작법 안내 (모던 스타일)
-        control_card = pygame.Rect(20, SCREEN_HEIGHT - 80, SCREEN_WIDTH - 40, 60)
-        control_surface = pygame.Surface((SCREEN_WIDTH - 40, 60), pygame.SRCALPHA)
-        control_surface.fill((*DARK_SURFACE, 150))
-        self.screen.blit(control_surface, (20, SCREEN_HEIGHT - 80))
-        pygame.draw.rect(self.screen, TEXT_SECONDARY, control_card, 1, border_radius=10)
-        
-        control_text = self.safe_render_text(self.small_font, "Navigate: ↑↓ • Select: ENTER • Mouse Click", TEXT_SECONDARY)
-        control_rect = control_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 50))
-        self.screen.blit(control_text, control_rect)
+
+            # 우측 화살표 (선택 항목만)
+            if i == self.selected_menu:
+                arr = self.safe_render_text(self.small_font, "›", NEON_CYAN)
+                self.screen.blit(arr, (SCREEN_WIDTH - 40, my + 13))
+
+        # ── 하단 조작 힌트 ────────────────────────────────────────────────────
+        hint_y = SCREEN_HEIGHT - 42
+        hint_surf = pygame.Surface((SCREEN_WIDTH, 42), pygame.SRCALPHA)
+        hint_surf.fill((0, 0, 0, 100))
+        self.screen.blit(hint_surf, (0, hint_y))
+
+        # 구분선
+        sep_surf = pygame.Surface((SCREEN_WIDTH, 1), pygame.SRCALPHA)
+        for hx in range(SCREEN_WIDTH):
+            ha = int(80 * math.sin(math.pi * hx / SCREEN_WIDTH))
+            pygame.draw.line(sep_surf, (*NEON_CYAN, ha), (hx, 0), (hx, 0))
+        self.screen.blit(sep_surf, (0, hint_y))
+
+        hint_items = [("↑↓", "이동"), ("ENTER", "선택"), ("CLICK", "클릭")]
+        hint_spacing = SCREEN_WIDTH // len(hint_items)
+        for hi, (key, desc) in enumerate(hint_items):
+            hx = hint_spacing * hi + hint_spacing // 2
+            key_surf = self.safe_render_text(self.small_font, key, (130, 200, 255))
+            desc_surf = self.safe_render_text(self.small_font, desc, (80, 100, 120))
+            key_rect = key_surf.get_rect(center=(hx, hint_y + 13))
+            desc_rect = desc_surf.get_rect(center=(hx, hint_y + 28))
+            self.screen.blit(key_surf, key_rect)
+            self.screen.blit(desc_surf, desc_rect)
         
     def draw_game(self):
         # UI 그리기
