@@ -11,6 +11,7 @@ import json
 import time
 import os
 from utils import safe_render_text
+from sound_system import sound_manager
 
 
 class ReplayManager:
@@ -348,6 +349,7 @@ class AchievementManager:
             'duration': ACHIEVEMENT_NOTIFICATION_DURATION
         }
         self.notifications.append(notification)
+        sound_manager.play('achievement')
     
     def update_notifications(self):
         """알림 업데이트 (만료된 알림 제거)"""
@@ -720,10 +722,12 @@ class Ball:
         # 좌우 벽 충돌
         if self.x - self.radius <= 0 or self.x + self.radius >= SCREEN_WIDTH:
             self.dx = -self.dx
-        
+            sound_manager.play('wall_bounce', 0.5)
+
         # 상단 벽 충돌
         if self.y - self.radius <= TOP_UI_HEIGHT:
             self.dy = abs(self.dy)
+            sound_manager.play('wall_bounce', 0.5)
         
         # 바닥에 닿으면 비활성화
         if self.y + self.radius >= SCREEN_HEIGHT - BOTTOM_UI_HEIGHT:
@@ -843,19 +847,25 @@ class Block:
         # 파워볼 효과 적용
         damage = 2 if game and game.active_powerups.get(1, False) else 1
         self.health -= damage
-        
+
         if self.health <= 0:
             self.active = False
-            
+
             # 블록 파괴 시 폭발 파티클 생성
             if game:
                 self.create_explosion_particles(game)
-            
+
             # 폭탄 블록: 주변 블록도 파괴
             if self.block_type == BLOCK_TYPE_BOMB and game:
                 self.explode_nearby_blocks(game)
-            
+
+            # 블록 타입별 파괴 효과음
+            sound_manager.play_block_destroy(self.block_type)
+
             return True  # 블록이 파괴됨
+
+        # 파괴되지 않은 경우 타격음
+        sound_manager.play('block_hit', 0.6)
         return False
     
     def create_explosion_particles(self, game):
@@ -1310,6 +1320,7 @@ class Game:
                 self.settings["ball_speed"] = max(5, self.settings["ball_speed"] - 1)
         elif self.settings_menu_selected == 1:  # 사운드
             self.settings["sound_enabled"] = not self.settings["sound_enabled"]
+            sound_manager.set_enabled(self.settings["sound_enabled"])
         elif self.settings_menu_selected == 2:  # 난이도
             difficulties = [get_text('easy'), get_text('normal'), get_text('hard')]
             current_idx = 0
@@ -1408,14 +1419,20 @@ class Game:
         
         # 업적 시스템 초기화
         self.blocks_destroyed_this_shot = 0
-        
+
+        # 사운드 초기화
+        self.game_over_sound_played = False
+
         # 상점 초기화
         if hasattr(self, 'shop'):
             self.shop.open = False
             self.shop.owned_items = []
             self.shop.player_score = self.score
-        
+
         self.generate_blocks()
+
+        # BGM 시작 (라운드 1부터)
+        sound_manager.start_bgm(1)
     
     def add_score(self, points, block_color=None):
         """점수 추가 (콤보 시스템 포함)"""
@@ -1448,6 +1465,8 @@ class Game:
                 
                 # 업적: 콤보 마스터
                 self.achievement_manager.check_achievement('combo_master', self.combo_count)
+                # 콤보 효과음 (레벨별 피치 변화)
+                sound_manager.play_combo(self.combo_count)
             else:
                 self.combo_multiplier = 1.0
             
@@ -1707,8 +1726,10 @@ class Game:
         menu_items = self.get_menu_items()
         if key == pygame.K_UP:
             self.selected_menu = (self.selected_menu - 1) % len(menu_items)
+            sound_manager.play('menu_select', 0.5)
         elif key == pygame.K_DOWN:
             self.selected_menu = (self.selected_menu + 1) % len(menu_items)
+            sound_manager.play('menu_select', 0.5)
         elif key == pygame.K_RETURN or key == pygame.K_SPACE:
             if self.selected_menu == 0:  # 게임시작 (클래식 모드)
                 self.mode_manager.set_mode(GAME_MODE_CLASSIC)
@@ -1741,6 +1762,7 @@ class Game:
             self.launch_start_time = pygame.time.get_ticks()
             self.balls_launched = 0
             self.blocks_destroyed_this_shot = 0
+            sound_manager.play('launch', 0.7)
             
             # 업적: 각도 추적 시작
             if self.balls_launched == 0:  # 첫 번째 공 발사 시에만
@@ -1808,6 +1830,7 @@ class Game:
                     if not bonus.collected:  # 중복 수집 방지
                         bonus.collected = True
                         bonus.create_sparkle_particles(self)  # 반짝임 효과 생성
+                        sound_manager.play('bonus_collect')
                     bonus.active = False
                     self.bonus_balls_collected += 1  # 라운드 종료 후 적용
                     
@@ -1849,7 +1872,8 @@ class Game:
             if not self.game_over:
                 self.shop.open = True
                 self.shop.reset(self.score)
-            
+                sound_manager.play('round_complete')
+
             self.next_round()
             
         # 게임 오버 체크 (블록이나 보너스 볼이 바닥에 닿음)
@@ -1872,7 +1896,13 @@ class Game:
                 break
                 
         # 슈퍼볼 아이템 바닥 충돌 코드 삭제
-                
+
+        # 게임 오버 사운드 (최초 1회)
+        if self.game_over and not self.game_over_sound_played:
+            self.game_over_sound_played = True
+            sound_manager.stop_bgm()
+            sound_manager.play('game_over')
+
         # 매그넘볼 효과: 공이 1개 남았을 때 모든 블록 제거
         if self.active_powerups[3] and len(self.balls) == 1:
             for block in self.blocks:
@@ -1944,7 +1974,10 @@ class Game:
         
         # 테마 업데이트 (라운드에 따라)
         self.current_theme = self.theme_manager.get_round_theme(self.round_num)
-        
+
+        # BGM 티어 업데이트 (라운드별 속도/분위기 변화)
+        sound_manager.update_bgm(self.round_num)
+
         # 발사 위치를 마지막 공이 떨어진 위치로 설정 (화면 경계 제한)
         self.launch_x = max(20, min(SCREEN_WIDTH - 20, self.last_ball_x))
         
