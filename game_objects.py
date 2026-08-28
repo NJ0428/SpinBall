@@ -2141,42 +2141,196 @@ class Game:
                     bonus_rect = bonus_surface.get_rect(center=(combo_x + 80, combo_y))
                     screen.blit(bonus_surface, bonus_rect)
         
+    def calculate_trajectory(self):
+        """볼 발사 궤적 시뮬레이션 - 벽 반사와 첫 블록 충돌 지점 계산.
+        Returns: (waypoints, hit_point)
+          waypoints: [(x,y), ...] 경로 꼭짓점 리스트
+          hit_point: (x,y) 첫 번째 블록 충돌 지점 또는 None
+        """
+        launch_y = SCREEN_HEIGHT - BOTTOM_UI_HEIGHT - BALL_RADIUS - 2
+        angle_rad = math.radians(self.launch_angle)
+
+        x = float(self.launch_x)
+        y = float(launch_y)
+        vx = math.cos(angle_rad)
+        vy = -math.sin(angle_rad)  # 위 방향
+
+        waypoints = [(x, y)]
+        hit_point = None
+        reflections = 0
+        max_reflections = 6
+        step = float(BALL_SPEED)
+
+        for _ in range(300):
+            nx = x + vx * step
+            ny = y + vy * step
+
+            # 좌우 벽 반사
+            wall_reflected = False
+            if nx - BALL_RADIUS < 0:
+                nx = float(BALL_RADIUS)
+                vx = abs(vx)
+                waypoints.append((nx, ny))
+                reflections += 1
+                wall_reflected = True
+            elif nx + BALL_RADIUS > SCREEN_WIDTH:
+                nx = float(SCREEN_WIDTH - BALL_RADIUS)
+                vx = -abs(vx)
+                waypoints.append((nx, ny))
+                reflections += 1
+                wall_reflected = True
+
+            # 위쪽 벽 반사
+            if ny - BALL_RADIUS < TOP_UI_HEIGHT:
+                ny = float(TOP_UI_HEIGHT + BALL_RADIUS)
+                vy = abs(vy)
+                if not wall_reflected:
+                    waypoints.append((nx, ny))
+                reflections += 1
+
+            x, y = nx, ny
+
+            # 바닥 도달 - 시뮬레이션 종료
+            if y + BALL_RADIUS >= SCREEN_HEIGHT - BOTTOM_UI_HEIGHT:
+                waypoints.append((x, y))
+                break
+
+            # 최대 반사 횟수 초과
+            if reflections >= max_reflections:
+                waypoints.append((x, y))
+                break
+
+            # 블록 충돌 검사 (첫 번째 충돌에서 정지)
+            for block in self.blocks:
+                if not block.active:
+                    continue
+                if (x + BALL_RADIUS >= block.x and
+                        x - BALL_RADIUS <= block.x + BLOCK_SIZE and
+                        y + BALL_RADIUS >= block.y and
+                        y - BALL_RADIUS <= block.y + BLOCK_SIZE):
+                    hit_point = (x, y)
+                    waypoints.append((x, y))
+                    return waypoints, hit_point
+
+        return waypoints, hit_point
+
+    def _draw_trajectory_segment(self, start, end, color, alpha_start=220, alpha_end=60):
+        """두 점 사이에 테마 색상 점선 궤적 그리기"""
+        sx, sy = start
+        ex, ey = end
+        dx = ex - sx
+        dy = ey - sy
+        length = math.sqrt(dx * dx + dy * dy)
+        if length < 1:
+            return
+
+        nx = dx / length
+        ny = dy / length
+        dot_r = 2
+        spacing = 10
+        step = dot_r * 2 + spacing
+
+        t = 0.0
+        while t <= length:
+            progress = t / length
+            alpha = int(alpha_start + (alpha_end - alpha_start) * progress)
+            alpha = max(30, min(255, alpha))
+            px = sx + nx * t
+            py = sy + ny * t
+            dot_surf = pygame.Surface((dot_r * 2 + 2, dot_r * 2 + 2), pygame.SRCALPHA)
+            pygame.draw.circle(dot_surf, (*color[:3], alpha), (dot_r + 1, dot_r + 1), dot_r)
+            self.screen.blit(dot_surf, (int(px) - dot_r - 1, int(py) - dot_r - 1))
+            t += step
+
     def draw_aim_line(self):
         # 게임 오버가 아니고 라운드가 진행 중이 아닐 때만 조준선 표시
         if not self.game_over and not self.round_in_progress:
+            theme_colors = self.theme_manager.get_theme_colors(self.current_theme)
+            traj_color = theme_colors['ball_color']
             launch_y = SCREEN_HEIGHT - BOTTOM_UI_HEIGHT - BALL_RADIUS - 2
-            angle_rad = math.radians(self.launch_angle)
-            
-            # 조준선 (그라데이션 점선 효과)
-            for i in range(0, int(AIM_LINE_LENGTH), 12):
-                alpha = max(50, 255 - i * 2)  # 거리에 따라 투명도 감소
-                start_x = self.launch_x + i * math.cos(angle_rad)
-                start_y = launch_y - i * math.sin(angle_rad)
-                end_x_segment = start_x + 8 * math.cos(angle_rad)
-                end_y_segment = start_y - 8 * math.sin(angle_rad)
-                
-                # 조준선 색상 (네온 효과)
-                line_color = (*NEON_CYAN, alpha)
-                line_surface = pygame.Surface((abs(end_x_segment - start_x) + 4, abs(end_y_segment - start_y) + 4), pygame.SRCALPHA)
-                pygame.draw.line(line_surface, line_color, 
-                               (2, 2), (end_x_segment - start_x + 2, end_y_segment - start_y + 2), 3)
-                self.screen.blit(line_surface, (min(start_x, end_x_segment) - 2, min(start_y, end_y_segment) - 2))
-            
-            # 발사점 (펄스 효과)
             current_time = pygame.time.get_ticks()
+
+            # ── 궤적 미리보기 ──────────────────────────────────────────
+            waypoints, hit_point = self.calculate_trajectory()
+
+            if len(waypoints) >= 2:
+                # 전체 경로 길이 계산 (알파 감소 기준)
+                seg_lens = []
+                total_len = 0.0
+                for i in range(len(waypoints) - 1):
+                    sx, sy = waypoints[i]
+                    ex, ey = waypoints[i + 1]
+                    seg_len = math.sqrt((ex - sx) ** 2 + (ey - sy) ** 2)
+                    seg_lens.append(seg_len)
+                    total_len += seg_len
+
+                # 세그먼트별 점선 그리기
+                cumulative = 0.0
+                for i in range(len(waypoints) - 1):
+                    seg_len = seg_lens[i]
+                    a_start = int(220 * max(0.28, 1.0 - cumulative / max(total_len, 1) * 0.75))
+                    a_end = int(220 * max(0.28, 1.0 - (cumulative + seg_len) / max(total_len, 1) * 0.75))
+                    self._draw_trajectory_segment(waypoints[i], waypoints[i + 1],
+                                                  traj_color, a_start, a_end)
+                    cumulative += seg_len
+
+                # 벽 반사 지점 마커 (첫 점·마지막 점 제외)
+                for i in range(1, len(waypoints) - 1):
+                    wp = waypoints[i]
+                    if hit_point and wp == hit_point:
+                        continue
+                    px, py = int(wp[0]), int(wp[1])
+                    m = 14
+                    half = m // 2
+                    marker_surf = pygame.Surface((m, m), pygame.SRCALPHA)
+                    mc = (*traj_color[:3], 170)
+                    pygame.draw.line(marker_surf, mc, (half - 4, half), (half + 4, half), 2)
+                    pygame.draw.line(marker_surf, mc, (half, half - 4), (half, half + 4), 2)
+                    self.screen.blit(marker_surf, (px - half, py - half))
+
+                # 첫 번째 블록 충돌 지점 강조 표시
+                if hit_point:
+                    hx, hy = int(hit_point[0]), int(hit_point[1])
+                    pulse = abs(math.sin(current_time / 250)) * 3
+                    hit_r = int(9 + pulse)
+
+                    # 외부 글로우
+                    for gi in range(3, 0, -1):
+                        g = (hit_r + gi * 5) * 2 + 4
+                        gs = pygame.Surface((g, g), pygame.SRCALPHA)
+                        pygame.draw.circle(gs, (*NEON_PINK, 45 // gi), (g // 2, g // 2), hit_r + gi * 5)
+                        self.screen.blit(gs, (hx - g // 2, hy - g // 2))
+
+                    # 메인 원
+                    hr = hit_r + 3
+                    hs = pygame.Surface((hr * 2, hr * 2), pygame.SRCALPHA)
+                    pygame.draw.circle(hs, (*NEON_PINK, 190), (hr, hr), hit_r)
+                    pygame.draw.circle(hs, (255, 255, 255, 230), (hr, hr), hit_r, 2)
+                    self.screen.blit(hs, (hx - hr, hy - hr))
+
+                    # 십자 조준선
+                    cross = hit_r + 6
+                    cl = pygame.Surface((cross * 2 + 1, 3), pygame.SRCALPHA)
+                    pygame.draw.line(cl, (*NEON_PINK, 200), (0, 1), (cross * 2, 1), 1)
+                    self.screen.blit(cl, (hx - cross, hy - 1))
+                    cv = pygame.Surface((3, cross * 2 + 1), pygame.SRCALPHA)
+                    pygame.draw.line(cv, (*NEON_PINK, 200), (1, 0), (1, cross * 2), 1)
+                    self.screen.blit(cv, (hx - 1, hy - cross))
+
+            # ── 발사점 (펄스 효과) ─────────────────────────────────────
             pulse = int(2 + math.sin(current_time / 200) * 2)
-            
+
             # 글로우 효과
             for i in range(3, 0, -1):
-                glow_color = (*NEON_CYAN, 60 // i)
+                glow_color = (*traj_color[:3], 60 // i)
                 glow_surface = pygame.Surface((20 + i * 4, 20 + i * 4), pygame.SRCALPHA)
                 pygame.draw.circle(glow_surface, glow_color, (10 + i * 2, 10 + i * 2), 8 + i + pulse)
                 self.screen.blit(glow_surface, (self.launch_x - 10 - i * 2, launch_y - 10 - i * 2))
-            
+
             # 메인 발사점
-            pygame.draw.circle(self.screen, NEON_CYAN, (self.launch_x, launch_y), 8 + pulse)
+            pygame.draw.circle(self.screen, traj_color, (self.launch_x, launch_y), 8 + pulse)
             pygame.draw.circle(self.screen, WHITE, (self.launch_x, launch_y), 8 + pulse, 2)
-            
+
             # 중앙 하이라이트
             pygame.draw.circle(self.screen, WHITE, (self.launch_x - 2, launch_y - 2), 3)
         
