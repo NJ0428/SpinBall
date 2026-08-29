@@ -2,7 +2,32 @@ import pygame
 import logging
 import math
 import random
-from constants import Colors, GameSettings, UI, Ball, Block, Bonus, Paddle, Brick, Game, Combo, Particle, Theme, Replay, Stats, Achievement, Shop
+from constants import (Colors, GameSettings, UI, Ball, Block, Bonus, Paddle, Brick, Game, Combo, Particle, Theme, Replay, Stats, Achievement, Shop,
+    ACCENT_COLOR, ACHIEVEMENT_NOTIFICATION_DURATION, BALL_COUNT_START, BALL_LAUNCH_DELAY, BALL_RADIUS, BALL_SPEED,
+    BLACK, BLOCKS_PER_ROW, BLOCK_MARGIN, BLOCK_SIZE, BLOCK_START_Y, BLUE,
+    BOMB_BLOCK_CHANCE, BOMB_BLOCK_COLOR, BONUS_BALL_RADIUS, BONUS_BALL_SPAWN_CHANCE, BONUS_GREEN, BOTTOM_UI_HEIGHT,
+    CHRISTMAS_DARK, CHRISTMAS_GOLD, CHRISTMAS_RED, CHRISTMAS_WHITE,
+    COMBO_GLOW_COLOR, COMBO_MULTIPLIER_BASE, COMBO_MULTIPLIER_INCREMENT, COMBO_TEXT_COLOR, COMBO_TIME_WINDOW,
+    DARKER_SURFACE, DARK_GRAY, DARK_SURFACE,
+    EXPLOSION_PARTICLE_COUNT, EXPLOSION_PARTICLE_LIFE, EXPLOSION_PARTICLE_SPEED, FPS,
+    GAME_MODE_CLASSIC, GAME_MODE_PUZZLE, GAME_MODE_SURVIVAL, GAME_MODE_TIME_ATTACK,
+    GAME_STATE_ACHIEVEMENTS, GAME_STATE_GAME, GAME_STATE_MODE_SELECT, GAME_STATE_RANKING,
+    GAME_STATE_SETTINGS, GAME_STATE_STATISTICS, GAME_STATE_TITLE,
+    GHOST_BLOCK_CHANCE, GHOST_BLOCK_COLOR, GHOST_BLOCK_PASS_CHANCE, GREEN,
+    HALLOWEEN_BLACK, HALLOWEEN_GRAY, HALLOWEEN_ORANGE, HALLOWEEN_PURPLE,
+    LIGHT_BLACK, LIGHT_DARKER_SURFACE, LIGHT_SURFACE, LIGHT_TEXT, LIGHT_TEXT_SECONDARY,
+    MAX_COMBO_MULTIPLIER, MAX_LAUNCH_ANGLE, MAX_REPLAY_ACTIONS, MIN_COMBO_COUNT, MIN_LAUNCH_ANGLE,
+    NEON_CYAN, NEON_GREEN, NEON_ORANGE, NEON_PINK, NEON_PURPLE, NEON_YELLOW, ORANGE,
+    PERFECT_ANGLES, PERFECT_ANGLE_TOLERANCE, PURPLE, PUZZLE_MODE_BALLS, RED, REPLAY_SAVE_THRESHOLD,
+    SCREEN_HEIGHT, SCREEN_WIDTH, SHIELD_BLOCK_CHANCE, SHIELD_BLOCK_COLOR,
+    SPARKLE_PARTICLE_COUNT, SPARKLE_PARTICLE_LIFE, SPARKLE_PARTICLE_SPEED,
+    SPRING_GREEN, SPRING_PINK, SPRING_WHITE, SPRING_YELLOW,
+    SUMMER_BLUE, SUMMER_CYAN, SUMMER_YELLOW, SURVIVAL_SPEED_INCREASE,
+    TEXT_SECONDARY, TIME_ATTACK_DURATION, TOP_UI_HEIGHT, TRAIL_FADE_SPEED, TRAIL_LENGTH,
+    WHITE, YELLOW,
+    BLOCK_TYPE_NORMAL, BLOCK_TYPE_BOMB, BLOCK_TYPE_SHIELD, BLOCK_TYPE_GHOST,
+    THEME_DARK, THEME_LIGHT, THEME_CHRISTMAS, THEME_HALLOWEEN, THEME_SPRING, THEME_SUMMER,
+    THEME_BACKGROUNDS, ROUND_THEME_CHANGES)
 from language import get_text, set_language, get_current_language, language_manager
 from database import db_manager
 from shop import Shop
@@ -1264,7 +1289,7 @@ class Game:
         self.score_saved = False
         
         # 게임 상태 관리
-        self.game_state = Game.STATE_TITLE
+        self.game_state = GAME_STATE_TITLE
         self.selected_menu = 0  # 선택된 메뉴 항목
         self.settings_menu_selected = 0  # 설정 메뉴에서 선택된 항목
         
@@ -2125,19 +2150,19 @@ class Game:
                     screen.blit(glow_surface, (combo_x - 100, combo_y - 30))
                 
                 # 콤보 텍스트
-                combo_surface = self.safe_render_text(self.large_font, combo_text, COMBO_TEXT_COLOR)
+                combo_surface = safe_render_text(self.large_font, combo_text, COMBO_TEXT_COLOR)
                 combo_rect = combo_surface.get_rect(center=(combo_x, combo_y - 10))
                 screen.blit(combo_surface, combo_rect)
                 
                 # 배율 텍스트
-                multiplier_surface = self.safe_render_text(self.font, multiplier_text, NEON_GREEN)
+                multiplier_surface = safe_render_text(self.font, multiplier_text, NEON_GREEN)
                 multiplier_rect = multiplier_surface.get_rect(center=(combo_x, combo_y + 15))
                 screen.blit(multiplier_surface, multiplier_rect)
                 
                 # 추가 점수 표시
                 if self.combo_score_gained > 0:
                     bonus_text = f"+{self.combo_score_gained}"
-                    bonus_surface = self.safe_render_text(self.small_font, bonus_text, NEON_CYAN)
+                    bonus_surface = safe_render_text(self.small_font, bonus_text, NEON_CYAN)
                     bonus_rect = bonus_surface.get_rect(center=(combo_x + 80, combo_y))
                     screen.blit(bonus_surface, bonus_rect)
         
@@ -2352,14 +2377,14 @@ class Game:
         pygame.draw.rect(self.screen, theme_colors['ball_color'], score_card, 1, border_radius=8)
         
         # 점수 텍스트
-        score_label = self.safe_render_text(self.small_font, "SCORE", theme_colors['text_secondary'])
-        score_value = self.safe_render_text(self.font, f"{self.score:,}", theme_colors['ball_color'])
+        score_label = safe_render_text(self.small_font, "SCORE", theme_colors['text_secondary'])
+        score_value = safe_render_text(self.font, f"{self.score:,}", theme_colors['ball_color'])
         self.screen.blit(score_label, (25, 20))
         self.screen.blit(score_value, (25, 40))
         
         # 베스트 스코어 (작게)
         if self.high_score > 0:
-            best_text = self.safe_render_text(self.small_font, f"BEST: {self.high_score:,}", theme_colors['text_secondary'])
+            best_text = safe_render_text(self.small_font, f"BEST: {self.high_score:,}", theme_colors['text_secondary'])
             self.screen.blit(best_text, (180, 25))
         
         # 라운드/모드 정보 카드 (오른쪽)
@@ -2370,19 +2395,19 @@ class Game:
         # 모드별 정보 표시
         if self.mode_manager.current_mode == GAME_MODE_TIME_ATTACK:
             time_left = self.mode_manager.mode_data.get('time_left', 0)
-            info_label = self.safe_render_text(self.small_font, "TIME", theme_colors['text_secondary'])
-            info_value = self.safe_render_text(self.font, f"{int(time_left)}", theme_colors['accent'])
+            info_label = safe_render_text(self.small_font, "TIME", theme_colors['text_secondary'])
+            info_value = safe_render_text(self.font, f"{int(time_left)}", theme_colors['accent'])
         elif self.mode_manager.current_mode == GAME_MODE_PUZZLE:
             balls_left = self.mode_manager.mode_data.get('balls_left', 0)
-            info_label = self.safe_render_text(self.small_font, "BALLS", theme_colors['text_secondary'])
-            info_value = self.safe_render_text(self.font, f"{balls_left}", theme_colors['accent'])
+            info_label = safe_render_text(self.small_font, "BALLS", theme_colors['text_secondary'])
+            info_value = safe_render_text(self.font, f"{balls_left}", theme_colors['accent'])
         elif self.mode_manager.current_mode == GAME_MODE_SURVIVAL:
             speed = self.mode_manager.mode_data.get('speed_multiplier', 1.0)
-            info_label = self.safe_render_text(self.small_font, "SPEED", theme_colors['text_secondary'])
-            info_value = self.safe_render_text(self.font, f"{speed:.1f}x", theme_colors['accent'])
+            info_label = safe_render_text(self.small_font, "SPEED", theme_colors['text_secondary'])
+            info_value = safe_render_text(self.font, f"{speed:.1f}x", theme_colors['accent'])
         else:  # 클래식 모드
-            info_label = self.safe_render_text(self.small_font, "ROUND", theme_colors['text_secondary'])
-            info_value = self.safe_render_text(self.font, f"{self.round_num}", theme_colors['accent'])
+            info_label = safe_render_text(self.small_font, "ROUND", theme_colors['text_secondary'])
+            info_value = safe_render_text(self.font, f"{self.round_num}", theme_colors['accent'])
         
         self.screen.blit(info_label, (SCREEN_WIDTH - 90, 20))
         self.screen.blit(info_value, (SCREEN_WIDTH - 75, 40))
@@ -2405,7 +2430,7 @@ class Game:
         pygame.draw.circle(self.screen, theme_colors['ball_color'], (SCREEN_WIDTH//2 - 30, SCREEN_HEIGHT - 55), 8)
         pygame.draw.circle(self.screen, theme_colors['text'], (SCREEN_WIDTH//2 - 30, SCREEN_HEIGHT - 55), 8, 2)
         
-        ball_count_text = self.safe_render_text(self.font, f"×{self.ball_count}", theme_colors['text'])
+        ball_count_text = safe_render_text(self.font, f"×{self.ball_count}", theme_colors['text'])
         text_rect = ball_count_text.get_rect()
         text_rect.center = (SCREEN_WIDTH//2 + 10, SCREEN_HEIGHT - 55)
         self.screen.blit(ball_count_text, text_rect)
@@ -2419,7 +2444,7 @@ class Game:
             pygame.draw.rect(self.screen, DARKER_SURFACE, bonus_bg, border_radius=15)
             pygame.draw.rect(self.screen, BONUS_GREEN, bonus_bg, 2, border_radius=15)
             
-            bonus_text = self.safe_render_text(self.small_font, f"+{self.bonus_balls_collected}", BONUS_GREEN)
+            bonus_text = safe_render_text(self.small_font, f"+{self.bonus_balls_collected}", BONUS_GREEN)
             bonus_rect = bonus_text.get_rect()
             bonus_rect.center = (SCREEN_WIDTH//2 + 100, SCREEN_HEIGHT - 55)
             self.screen.blit(bonus_text, bonus_rect)
@@ -2515,7 +2540,7 @@ class Game:
             glow_surf.blit(gt, gr)
             self.screen.blit(glow_surf, (0, title_y - 40))
 
-        title_text = self.safe_render_text(self.title_font, "SpinBall", glow_col)
+        title_text = safe_render_text(self.title_font, "SpinBall", glow_col)
         title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, title_y))
         self.screen.blit(title_text, title_rect)
 
@@ -2530,7 +2555,7 @@ class Game:
 
         # 서브타이틀
         subtitle_col = (160, 200, 220)
-        subtitle = self.safe_render_text(self.small_font, "◈  Modern Block Breaker  ◈", subtitle_col)
+        subtitle = safe_render_text(self.small_font, "◈  Modern Block Breaker  ◈", subtitle_col)
         subtitle_rect = subtitle.get_rect(center=(SCREEN_WIDTH // 2, title_y + 52))
         self.screen.blit(subtitle, subtitle_rect)
 
@@ -2547,7 +2572,7 @@ class Game:
         pygame.draw.rect(badge_surf, (255, 215, 0, 30), (0, 0, 180, 32), border_radius=16)
         pygame.draw.rect(badge_surf, (255, 215, 0, 120), (0, 0, 180, 32), 1, border_radius=16)
         self.screen.blit(badge_surf, badge_rect.topleft)
-        best_text = self.safe_render_text(self.small_font,
+        best_text = safe_render_text(self.small_font,
                                           f"BEST  {best_score_val:,}" if best_score_val > 0 else "BEST  ---",
                                           (255, 215, 0))
         best_rect = best_text.get_rect(center=badge_rect.center)
@@ -2587,7 +2612,7 @@ class Game:
                 pygame.draw.rect(self.screen, NEON_CYAN, bar_rect, border_radius=2)
 
                 # 아이콘
-                icon_surf = self.safe_render_text(self.small_font, icon, NEON_CYAN)
+                icon_surf = safe_render_text(self.small_font, icon, NEON_CYAN)
                 self.screen.blit(icon_surf, (38, my + 13))
 
                 text_color = WHITE
@@ -2599,18 +2624,18 @@ class Game:
                 pygame.draw.rect(self.screen, (60, 70, 90, 100), card_rect, 1, border_radius=14)
 
                 icon_col = (80, 100, 120)
-                icon_surf = self.safe_render_text(self.small_font, icon, icon_col)
+                icon_surf = safe_render_text(self.small_font, icon, icon_col)
                 self.screen.blit(icon_surf, (38, my + 13))
 
                 text_color = (200, 210, 225)
 
-            menu_text = self.safe_render_text(mfont, item, text_color)
+            menu_text = safe_render_text(mfont, item, text_color)
             menu_rect = menu_text.get_rect(midleft=(62, my + 22))
             self.screen.blit(menu_text, menu_rect)
 
             # 우측 화살표 (선택 항목만)
             if i == self.selected_menu:
-                arr = self.safe_render_text(self.small_font, "›", NEON_CYAN)
+                arr = safe_render_text(self.small_font, "›", NEON_CYAN)
                 self.screen.blit(arr, (SCREEN_WIDTH - 40, my + 13))
 
         # ── 하단 조작 힌트 ────────────────────────────────────────────────────
@@ -2630,8 +2655,8 @@ class Game:
         hint_spacing = SCREEN_WIDTH // len(hint_items)
         for hi, (key, desc) in enumerate(hint_items):
             hx = hint_spacing * hi + hint_spacing // 2
-            key_surf = self.safe_render_text(self.small_font, key, (130, 200, 255))
-            desc_surf = self.safe_render_text(self.small_font, desc, (80, 100, 120))
+            key_surf = safe_render_text(self.small_font, key, (130, 200, 255))
+            desc_surf = safe_render_text(self.small_font, desc, (80, 100, 120))
             key_rect = key_surf.get_rect(center=(hx, hint_y + 13))
             desc_rect = desc_surf.get_rect(center=(hx, hint_y + 28))
             self.screen.blit(key_surf, key_rect)
@@ -2690,18 +2715,18 @@ class Game:
             
             # 게임 오버 타이틀 (모드별 메시지)
             if self.mode_manager.current_mode == GAME_MODE_PUZZLE and self.mode_manager.is_game_complete(self):
-                game_over_text = self.safe_render_text(self.large_font, "🎉 PUZZLE SOLVED!", NEON_GREEN)
+                game_over_text = safe_render_text(self.large_font, "🎉 PUZZLE SOLVED!", NEON_GREEN)
             elif self.mode_manager.current_mode == GAME_MODE_TIME_ATTACK:
-                game_over_text = self.safe_render_text(self.large_font, "⏰ TIME UP!", NEON_ORANGE)
+                game_over_text = safe_render_text(self.large_font, "⏰ TIME UP!", NEON_ORANGE)
             else:
-                game_over_text = self.safe_render_text(self.large_font, get_text('game_over'), NEON_PINK)
+                game_over_text = safe_render_text(self.large_font, get_text('game_over'), NEON_PINK)
             
             game_over_rect = game_over_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 100))
             self.screen.blit(game_over_text, game_over_rect)
             
             # 점수 표시 (하이라이트)
-            score_label = self.safe_render_text(self.small_font, "FINAL SCORE", TEXT_SECONDARY)
-            score_value = self.safe_render_text(self.font, f"{self.score:,}", NEON_CYAN)
+            score_label = safe_render_text(self.small_font, "FINAL SCORE", TEXT_SECONDARY)
+            score_value = safe_render_text(self.font, f"{self.score:,}", NEON_CYAN)
             score_label_rect = score_label.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 60))
             score_value_rect = score_value.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 35))
             self.screen.blit(score_label, score_label_rect)
@@ -2792,7 +2817,7 @@ class Game:
                 title_font = self.large_font
         except:
             title_font = self.large_font
-        title_text = self.safe_render_text(title_font, "⚙️ " + get_text('settings_title'), NEON_ORANGE)
+        title_text = safe_render_text(title_font, "⚙️ " + get_text('settings_title'), NEON_ORANGE)
         title_rect = title_text.get_rect(center=(SCREEN_WIDTH//2, 90))
         self.screen.blit(title_text, title_rect)
         
@@ -2892,7 +2917,7 @@ class Game:
                 title_font = self.large_font
         except:
             title_font = self.large_font
-        title_text = self.safe_render_text(title_font, "🏆 " + get_text('ranking_title'), NEON_YELLOW)
+        title_text = safe_render_text(title_font, "🏆 " + get_text('ranking_title'), NEON_YELLOW)
         title_rect = title_text.get_rect(center=(SCREEN_WIDTH//2, 80))
         self.screen.blit(title_text, title_rect)
         
@@ -3052,7 +3077,7 @@ class Game:
         pygame.draw.rect(self.screen, theme_colors['accent'], pause_card, 3, border_radius=20)
         
         # 일시정지 타이틀
-        pause_title = self.safe_render_text(self.large_font, "⏸️ PAUSED", theme_colors['accent'])
+        pause_title = safe_render_text(self.large_font, "⏸️ PAUSED", theme_colors['accent'])
         pause_rect = pause_title.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 80))
         self.screen.blit(pause_title, pause_rect)
         
@@ -3064,15 +3089,15 @@ class Game:
             
             if i == self.pause_menu_selected:
                 # 선택된 옵션
-                option_surface = self.safe_render_text(self.font, f"▶ {option}", theme_colors['accent'])
+                option_surface = safe_render_text(self.font, f"▶ {option}", theme_colors['accent'])
             else:
-                option_surface = self.safe_render_text(self.font, option, theme_colors['text'])
+                option_surface = safe_render_text(self.font, option, theme_colors['text'])
             
             option_rect = option_surface.get_rect(center=(SCREEN_WIDTH//2, y))
             self.screen.blit(option_surface, option_rect)
         
         # 조작 안내
-        help_text = self.safe_render_text(self.small_font, "↑↓: Select • ENTER: Confirm • ESC: Resume", theme_colors['text_secondary'])
+        help_text = safe_render_text(self.small_font, "↑↓: Select • ENTER: Confirm • ESC: Resume", theme_colors['text_secondary'])
         help_rect = help_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 90))
         self.screen.blit(help_text, help_rect)
     
@@ -3089,7 +3114,7 @@ class Game:
         pygame.draw.rect(self.screen, theme_colors['accent'], stats_card, 3, border_radius=20)
         
         # 제목
-        title_text = self.safe_render_text(self.large_font, "📊 STATISTICS", theme_colors['accent'])
+        title_text = safe_render_text(self.large_font, "📊 STATISTICS", theme_colors['accent'])
         title_rect = title_text.get_rect(center=(SCREEN_WIDTH//2, 90))
         self.screen.blit(title_text, title_rect)
         
@@ -3115,16 +3140,16 @@ class Game:
             y = 140 + row * 35
             
             # 라벨
-            label_surface = self.safe_render_text(self.small_font, label + ":", theme_colors['text_secondary'])
+            label_surface = safe_render_text(self.small_font, label + ":", theme_colors['text_secondary'])
             self.screen.blit(label_surface, (x, y))
             
             # 값
-            value_surface = self.safe_render_text(self.font, value, theme_colors['text'])
+            value_surface = safe_render_text(self.font, value, theme_colors['text'])
             self.screen.blit(value_surface, (x, y + 15))
         
         # 블록별 파괴 통계
         block_stats_y = 480
-        block_title = self.safe_render_text(self.font, "Blocks Destroyed by Type:", theme_colors['text'])
+        block_title = safe_render_text(self.font, "Blocks Destroyed by Type:", theme_colors['text'])
         self.screen.blit(block_title, (40, block_stats_y))
         
         block_types = [
@@ -3144,14 +3169,14 @@ class Game:
             pygame.draw.rect(self.screen, theme_colors['text'], block_rect, 1, border_radius=4)
             
             # 타입명과 개수
-            type_text = self.safe_render_text(self.small_font, block_type, theme_colors['text_secondary'])
-            count_text = self.safe_render_text(self.small_font, str(count), theme_colors['text'])
+            type_text = safe_render_text(self.small_font, block_type, theme_colors['text_secondary'])
+            count_text = safe_render_text(self.small_font, str(count), theme_colors['text'])
             
             self.screen.blit(type_text, (x + 25, y))
             self.screen.blit(count_text, (x + 25, y + 12))
         
         # 뒤로가기 안내
-        back_text = self.safe_render_text(self.small_font, "ESC: Back to Menu", theme_colors['text_secondary'])
+        back_text = safe_render_text(self.small_font, "ESC: Back to Menu", theme_colors['text_secondary'])
         back_rect = back_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 30))
         self.screen.blit(back_text, back_rect)
     
@@ -3168,7 +3193,7 @@ class Game:
         pygame.draw.rect(self.screen, theme_colors['accent'], mode_card, 3, border_radius=20)
         
         # 제목
-        title_text = self.safe_render_text(self.large_font, "🎯 CHALLENGE MODES", theme_colors['accent'])
+        title_text = safe_render_text(self.large_font, "🎯 CHALLENGE MODES", theme_colors['accent'])
         title_rect = title_text.get_rect(center=(SCREEN_WIDTH//2, 90))
         self.screen.blit(title_text, title_rect)
         
@@ -3203,17 +3228,17 @@ class Game:
                 desc_color = theme_colors['text_secondary']
             
             # 모드 이름
-            name_surface = self.safe_render_text(self.font, mode_name, name_color)
+            name_surface = safe_render_text(self.font, mode_name, name_color)
             name_rect = name_surface.get_rect(center=(SCREEN_WIDTH//2, y - 10))
             self.screen.blit(name_surface, name_rect)
             
             # 모드 설명
-            desc_surface = self.safe_render_text(self.small_font, description, desc_color)
+            desc_surface = safe_render_text(self.small_font, description, desc_color)
             desc_rect = desc_surface.get_rect(center=(SCREEN_WIDTH//2, y + 15))
             self.screen.blit(desc_surface, desc_rect)
         
         # 조작 안내
-        help_text = self.safe_render_text(self.small_font, "↑↓: Select • ENTER: Start • ESC: Back", theme_colors['text_secondary'])
+        help_text = safe_render_text(self.small_font, "↑↓: Select • ENTER: Start • ESC: Back", theme_colors['text_secondary'])
         help_rect = help_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 30))
         self.screen.blit(help_text, help_rect)
     
@@ -3230,14 +3255,14 @@ class Game:
         pygame.draw.rect(self.screen, theme_colors['accent'], achievement_card, 3, border_radius=20)
         
         # 제목과 진행률
-        title_text = self.safe_render_text(self.large_font, "🏆 ACHIEVEMENTS", theme_colors['accent'])
+        title_text = safe_render_text(self.large_font, "🏆 ACHIEVEMENTS", theme_colors['accent'])
         title_rect = title_text.get_rect(center=(SCREEN_WIDTH//2, 80))
         self.screen.blit(title_text, title_rect)
         
         # 진행률 표시
         completion = self.achievement_manager.get_completion_percentage()
         progress_text = f"{self.achievement_manager.get_unlocked_count()}/{self.achievement_manager.get_total_count()} ({completion:.0f}%)"
-        progress_surface = self.safe_render_text(self.small_font, progress_text, theme_colors['text_secondary'])
+        progress_surface = safe_render_text(self.small_font, progress_text, theme_colors['text_secondary'])
         progress_rect = progress_surface.get_rect(center=(SCREEN_WIDTH//2, 105))
         self.screen.blit(progress_surface, progress_rect)
         
@@ -3271,24 +3296,24 @@ class Game:
             
             # 업적 아이콘과 이름
             icon_name = f"{achievement['icon']} {achievement['name']}"
-            name_surface = self.safe_render_text(self.small_font, icon_name, name_color)
+            name_surface = safe_render_text(self.small_font, icon_name, name_color)
             self.screen.blit(name_surface, (40, y + 5))
             
             # 업적 설명
-            desc_surface = self.safe_render_text(self.small_font, achievement['description'], desc_color)
+            desc_surface = safe_render_text(self.small_font, achievement['description'], desc_color)
             self.screen.blit(desc_surface, (40, y + 22))
             
             # 진행도 표시
             if not achievement['unlocked'] and achievement['target'] > 1:
                 progress_text = f"{achievement['progress']}/{achievement['target']}"
-                progress_surface = self.safe_render_text(self.small_font, progress_text, progress_color)
+                progress_surface = safe_render_text(self.small_font, progress_text, progress_color)
                 progress_rect = progress_surface.get_rect()
                 progress_rect.right = SCREEN_WIDTH - 40
                 progress_rect.centery = y + achievement_height // 2
                 self.screen.blit(progress_surface, progress_rect)
         
         # 뒤로가기 안내
-        back_text = self.safe_render_text(self.small_font, "ESC: Back to Menu", theme_colors['text_secondary'])
+        back_text = safe_render_text(self.small_font, "ESC: Back to Menu", theme_colors['text_secondary'])
         back_rect = back_text.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 30))
         self.screen.blit(back_text, back_rect)
     
@@ -3325,18 +3350,18 @@ class Game:
             pygame.draw.rect(self.screen, NEON_GREEN, notification_rect, 2, border_radius=10)
             
             # "Achievement Unlocked!" 텍스트
-            unlock_text = self.safe_render_text(self.small_font, "🎉 ACHIEVEMENT UNLOCKED!", WHITE)
+            unlock_text = safe_render_text(self.small_font, "🎉 ACHIEVEMENT UNLOCKED!", WHITE)
             unlock_rect = unlock_text.get_rect(center=(SCREEN_WIDTH//2, y + 15))
             self.screen.blit(unlock_text, unlock_rect)
             
             # 업적 이름
             achievement_text = f"{achievement['icon']} {achievement['name']}"
-            achievement_surface = self.safe_render_text(self.font, achievement_text, WHITE)
+            achievement_surface = safe_render_text(self.font, achievement_text, WHITE)
             achievement_rect = achievement_surface.get_rect(center=(SCREEN_WIDTH//2, y + 35))
             self.screen.blit(achievement_surface, achievement_rect)
             
             # 업적 설명
-            desc_surface = self.safe_render_text(self.small_font, achievement['description'], WHITE)
+            desc_surface = safe_render_text(self.small_font, achievement['description'], WHITE)
             desc_rect = desc_surface.get_rect(center=(SCREEN_WIDTH//2, y + 55))
             self.screen.blit(desc_surface, desc_rect)
         
