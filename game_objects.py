@@ -2,7 +2,7 @@ import pygame
 import logging
 import math
 import random
-from constants import (Colors, GameSettings, UI, Ball, Block, Bonus, Paddle, Brick, Game, Combo, Particle, Theme, Replay, Stats, Achievement, Shop,
+from constants import (Colors, GameSettings, UI, Ball, Block, Boss, Bonus, Paddle, Brick, Game, Combo, Particle, Theme, Replay, Stats, Achievement, Shop,
     ACCENT_COLOR, ACHIEVEMENT_NOTIFICATION_DURATION, BALL_COUNT_START, BALL_LAUNCH_DELAY, BALL_RADIUS, BALL_SPEED,
     BLACK, BLOCKS_PER_ROW, BLOCK_MARGIN, BLOCK_SIZE, BLOCK_START_Y, BLUE,
     BOMB_BLOCK_CHANCE, BOMB_BLOCK_COLOR, BONUS_BALL_RADIUS, BONUS_BALL_SPAWN_CHANCE, BONUS_GREEN, BOTTOM_UI_HEIGHT,
@@ -27,7 +27,10 @@ from constants import (Colors, GameSettings, UI, Ball, Block, Bonus, Paddle, Bri
     WHITE, YELLOW,
     BLOCK_TYPE_NORMAL, BLOCK_TYPE_BOMB, BLOCK_TYPE_SHIELD, BLOCK_TYPE_GHOST,
     THEME_DARK, THEME_LIGHT, THEME_CHRISTMAS, THEME_HALLOWEEN, THEME_SPRING, THEME_SUMMER,
-    THEME_BACKGROUNDS, ROUND_THEME_CHANGES)
+    THEME_BACKGROUNDS, ROUND_THEME_CHANGES,
+    BOSS_TYPE_MOVER, BOSS_TYPE_SHIELDER, BOSS_TYPE_SPEEDER, BOSS_WIDTH, BOSS_HEIGHT,
+    BOSS_HEALTH_MULTIPLIER, BOSS_SCORE_MULTIPLIER, BOSS_EXPLOSION_COUNT,
+    BOSS_SHIELD_DURATION, BOSS_SHIELD_COOLDOWN, BOSS_ANNOUNCE_DURATION)
 from language import get_text, set_language, get_current_language, language_manager
 from database import db_manager
 from shop import Shop
@@ -577,7 +580,9 @@ class ThemeManager:
                 'text_secondary': LIGHT_TEXT_SECONDARY,
                 'accent': (0, 123, 255),
                 'ball_color': (0, 123, 255),
-                'ball_trail': (0, 123, 255)
+                'ball_trail': (0, 123, 255),
+                'trajectory_color': (0, 123, 255),
+                'hit_color': (220, 50, 50),
             }
         elif theme == THEME_CHRISTMAS:
             return {
@@ -588,7 +593,9 @@ class ThemeManager:
                 'text_secondary': (200, 200, 200),
                 'accent': CHRISTMAS_RED,
                 'ball_color': CHRISTMAS_GOLD,
-                'ball_trail': CHRISTMAS_GOLD
+                'ball_trail': CHRISTMAS_GOLD,
+                'trajectory_color': CHRISTMAS_GOLD,
+                'hit_color': CHRISTMAS_RED,
             }
         elif theme == THEME_HALLOWEEN:
             return {
@@ -599,7 +606,9 @@ class ThemeManager:
                 'text_secondary': HALLOWEEN_GRAY,
                 'accent': HALLOWEEN_PURPLE,
                 'ball_color': HALLOWEEN_ORANGE,
-                'ball_trail': HALLOWEEN_ORANGE
+                'ball_trail': HALLOWEEN_ORANGE,
+                'trajectory_color': HALLOWEEN_ORANGE,
+                'hit_color': HALLOWEEN_PURPLE,
             }
         elif theme == THEME_SPRING:
             return {
@@ -610,7 +619,9 @@ class ThemeManager:
                 'text_secondary': (100, 150, 100),
                 'accent': SPRING_PINK,
                 'ball_color': SPRING_GREEN,
-                'ball_trail': SPRING_GREEN
+                'ball_trail': SPRING_GREEN,
+                'trajectory_color': SPRING_GREEN,
+                'hit_color': SPRING_PINK,
             }
         elif theme == THEME_SUMMER:
             return {
@@ -621,7 +632,9 @@ class ThemeManager:
                 'text_secondary': (70, 100, 150),
                 'accent': SUMMER_BLUE,
                 'ball_color': SUMMER_CYAN,
-                'ball_trail': SUMMER_CYAN
+                'ball_trail': SUMMER_CYAN,
+                'trajectory_color': SUMMER_CYAN,
+                'hit_color': SUMMER_BLUE,
             }
         else:  # THEME_DARK (기본)
             return {
@@ -632,7 +645,9 @@ class ThemeManager:
                 'text_secondary': TEXT_SECONDARY,
                 'accent': NEON_CYAN,
                 'ball_color': NEON_CYAN,
-                'ball_trail': NEON_CYAN
+                'ball_trail': NEON_CYAN,
+                'trajectory_color': NEON_CYAN,
+                'hit_color': NEON_PINK,
             }
 
 
@@ -801,10 +816,37 @@ class Ball:
             return True
         return False
     
+    def bounce_boss(self, boss):
+        """보스 블록과 충돌 처리"""
+        if not self.active or not boss.active:
+            return False
+
+        ball_rect = pygame.Rect(self.x - self.radius, self.y - self.radius,
+                                self.radius * 2, self.radius * 2)
+        boss_rect = boss.get_rect()
+
+        if not ball_rect.colliderect(boss_rect):
+            return False
+
+        # 충돌 면 결정
+        overlap_left = (self.x + self.radius) - boss_rect.left
+        overlap_right = boss_rect.right - (self.x - self.radius)
+        overlap_top = (self.y + self.radius) - boss_rect.top
+        overlap_bottom = boss_rect.bottom - (self.y - self.radius)
+
+        min_overlap = min(overlap_left, overlap_right, overlap_top, overlap_bottom)
+
+        if min_overlap == overlap_top or min_overlap == overlap_bottom:
+            self.dy = -self.dy
+        else:
+            self.dx = -self.dx
+
+        return True
+
     def collect_bonus(self, bonus):
         if not self.active or not bonus.active:
             return False
-        
+
         # 보너스와 충돌 검사
         distance = math.sqrt((self.x - bonus.x)**2 + (self.y - bonus.y)**2)
         if distance <= self.radius + bonus.radius:
@@ -1102,6 +1144,181 @@ class Block:
             except pygame.error as e:
                 logging.error(f"대체 체력 텍스트 렌더링 오류: {e}")
                 pass  # 텍스트 렌더링 완전 실패 시 숫자 없이 표시
+
+
+class BossBlock:
+    """보스 블록 - 5라운드마다 등장하는 특수 대형 블록"""
+    TYPE_MOVER = 0
+    TYPE_SHIELDER = 1
+    TYPE_SPEEDER = 2
+
+    def __init__(self, x, y, health, boss_type):
+        self.x = x
+        self.y = y
+        self.health = health
+        self.max_health = health
+        self.active = True
+        self.boss_type = boss_type
+
+        # 이동 속도 (타입별)
+        speeds = {self.TYPE_MOVER: 1.5, self.TYPE_SHIELDER: 1.0, self.TYPE_SPEEDER: 2.5}
+        self.speed = speeds.get(boss_type, 1.5)
+        self.direction = 1  # 1=오른쪽, -1=왼쪽
+
+        # 방어막 패턴 (TYPE_SHIELDER, TYPE_SPEEDER)
+        self.shield_active = False
+        self.last_shield_change = pygame.time.get_ticks()
+
+        # 시각 효과
+        self.pulse_timer = 0
+
+    @property
+    def width(self):
+        return BLOCK_SIZE * 2 + BLOCK_MARGIN
+
+    @property
+    def height(self):
+        return BLOCK_SIZE * 2 + BLOCK_MARGIN
+
+    def get_rect(self):
+        return pygame.Rect(self.x, self.y, self.width, self.height)
+
+    def update(self):
+        """보스 이동 및 패턴 업데이트"""
+        if not self.active:
+            return
+
+        # 좌우 이동
+        self.x += self.speed * self.direction
+        if self.x <= 1:
+            self.x = 1
+            self.direction = 1
+        elif self.x + self.width >= SCREEN_WIDTH - 1:
+            self.x = SCREEN_WIDTH - 1 - self.width
+            self.direction = -1
+
+        # 방어막 토글 (SHIELDER, SPEEDER)
+        if self.boss_type in (self.TYPE_SHIELDER, self.TYPE_SPEEDER):
+            current_time = pygame.time.get_ticks()
+            elapsed = current_time - self.last_shield_change
+            if self.shield_active and elapsed >= BOSS_SHIELD_DURATION:
+                self.shield_active = False
+                self.last_shield_change = current_time
+            elif not self.shield_active and elapsed >= BOSS_SHIELD_COOLDOWN:
+                self.shield_active = True
+                self.last_shield_change = current_time
+
+        self.pulse_timer += 1
+
+    def hit(self, game=None):
+        """보스에 데미지 적용"""
+        if not self.active:
+            return False
+        if self.shield_active:
+            sound_manager.play('block_hit', 0.5)
+            return False  # 방어막이 튕겨냄
+
+        damage = 2 if game and game.active_powerups.get(1, False) else 1
+        self.health -= damage
+        sound_manager.play('block_hit', 0.8)
+
+        if self.health <= 0:
+            self.active = False
+            if game:
+                self.create_boss_explosion(game)
+            return True
+        return False
+
+    def get_score_value(self):
+        return self.max_health * BOSS_SCORE_MULTIPLIER
+
+    def move_down(self):
+        self.y += BLOCK_SIZE + BLOCK_MARGIN
+
+    def create_boss_explosion(self, game):
+        """보스 파괴 시 대규모 파티클 폭발"""
+        cx = self.x + self.width // 2
+        cy = self.y + self.height // 2
+        boss_colors = [
+            (255, 50, 50), (255, 150, 0), (255, 255, 0),
+            (255, 255, 255), (200, 50, 255), (50, 200, 255)
+        ]
+        for _ in range(BOSS_EXPLOSION_COUNT):
+            angle = random.uniform(0, 2 * math.pi)
+            speed = random.uniform(3, 16)
+            dx = math.cos(angle) * speed
+            dy = math.sin(angle) * speed
+            color = random.choice(boss_colors)
+            size = random.randint(3, 8)
+            life = random.randint(40, 80)
+            game.particles.append(Particle(cx, cy, dx, dy, color, life, size))
+
+    def get_base_color(self):
+        if self.boss_type == self.TYPE_MOVER:
+            return (200, 0, 50)
+        elif self.boss_type == self.TYPE_SHIELDER:
+            return (50, 0, 200)
+        else:
+            return (150, 0, 200)
+
+    def draw(self, screen):
+        if not self.active:
+            return
+
+        pulse = abs(math.sin(self.pulse_timer * 0.05)) * 25
+        base_color = self.get_base_color()
+        rect = self.get_rect()
+
+        # 글로우 효과
+        glow_surf = pygame.Surface((self.width + 24, self.height + 24), pygame.SRCALPHA)
+        glow_alpha = int(60 + pulse)
+        pygame.draw.rect(glow_surf, (*base_color, glow_alpha),
+                         (0, 0, self.width + 24, self.height + 24), border_radius=14)
+        screen.blit(glow_surf, (self.x - 12, self.y - 12))
+
+        # 메인 블록 본체
+        pygame.draw.rect(screen, base_color, rect, border_radius=12)
+
+        # 하이라이트 (3D 효과)
+        highlight = tuple(min(255, c + 70) for c in base_color)
+        pygame.draw.rect(screen, highlight,
+                         (self.x + 5, self.y + 5, self.width - 10, self.height // 3),
+                         border_radius=10)
+
+        # 방어막 시각 효과
+        if self.shield_active:
+            shield_surf = pygame.Surface((self.width + 20, self.height + 20), pygame.SRCALPHA)
+            sc = (100, 200, 255)
+            pygame.draw.rect(shield_surf, (*sc, 100),
+                             (0, 0, self.width + 20, self.height + 20), border_radius=16)
+            pygame.draw.rect(shield_surf, (*sc, 220),
+                             (0, 0, self.width + 20, self.height + 20), 4, border_radius=16)
+            screen.blit(shield_surf, (self.x - 10, self.y - 10))
+            # 방어막 텍스트
+            try:
+                font = pygame.font.Font(None, 18)
+                shield_text = font.render("SHIELD", True, (100, 200, 255))
+                shield_rect = shield_text.get_rect(center=(self.x + self.width // 2, self.y - 20))
+                screen.blit(shield_text, shield_rect)
+            except Exception:
+                pass
+
+        # 테두리
+        border_color = tuple(min(255, c + 100) for c in base_color)
+        pygame.draw.rect(screen, border_color, rect, 3, border_radius=12)
+
+        # BOSS 텍스트 + 체력
+        try:
+            font = pygame.font.Font(None, 22)
+            boss_label = font.render("BOSS", True, (255, 255, 255))
+            label_rect = boss_label.get_rect(center=(self.x + self.width // 2, self.y + self.height // 2 - 8))
+            screen.blit(boss_label, label_rect)
+
+            hp_text = font.render(f"{self.health}", True, (255, 220, 100))
+            hp_rect = hp_text.get_rect(center=(self.x + self.width // 2, self.y + self.height // 2 + 10))
+            screen.blit(hp_text, hp_rect)
+        except Exception:
+            pass
 
 
 class BonusBall:
@@ -1410,6 +1627,10 @@ class Game:
         self.launch_x = SCREEN_WIDTH // 2
         self.round_in_progress = False
         self.bonus_balls_collected = 0
+        self.boss = None
+        self.is_boss_round = False
+        self.boss_announce_timer = 0
+        self.boss_killed_this_round = False
         self.last_ball_x = SCREEN_WIDTH // 2
         # 슈퍼볼 관련 변수 전체 삭제
         self.entering_name = False
@@ -1577,7 +1798,23 @@ class Game:
                 occupied_positions.append(col)  # 보너스 볼이 생성된 위치도 점유됨으로 표시
         
         # 슈퍼볼 아이템 생성 코드 완전 삭제
-        
+
+    def spawn_boss(self):
+        """보스 라운드: 대형 보스 블록 생성"""
+        boss_type = ((self.round_num // 5) - 1) % 3
+
+        boss_health = self.round_num * BOSS_HEALTH_MULTIPLIER
+        # 보스 크기
+        bw = BLOCK_SIZE * 2 + BLOCK_MARGIN
+        bh = BLOCK_SIZE * 2 + BLOCK_MARGIN
+        # 중앙 배치
+        x = (SCREEN_WIDTH - bw) // 2
+        y = BLOCK_START_Y
+        self.boss = BossBlock(x, y, boss_health, boss_type)
+        self.is_boss_round = True
+        self.boss_killed_this_round = False
+        self.boss_announce_timer = pygame.time.get_ticks()
+
     def handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -1849,6 +2086,15 @@ class Game:
                             block_color = block.get_color()
                             self.add_score(block.get_score_value(), block_color)
                         
+            # 보스와 충돌 검사
+            if self.boss and self.boss.active:
+                if ball.bounce_boss(self.boss):
+                    if self.boss.hit(self):
+                        # 보스 파괴!
+                        self.add_score(self.boss.get_score_value(), (255, 50, 50))
+                        self.boss_killed_this_round = True
+                        sound_manager.play('block_destroy', 1.0)
+
             # 보너스 볼 수집
             for bonus in self.bonus_balls:
                 if ball.collect_bonus(bonus):
@@ -1858,7 +2104,7 @@ class Game:
                         sound_manager.play('bonus_collect')
                     bonus.active = False
                     self.bonus_balls_collected += 1  # 라운드 종료 후 적용
-                    
+
             # 슈퍼볼 아이템 수집 코드 완전 삭제
                     
         # 보너스 볼은 고정된 위치에 있으므로 이동하지 않음
@@ -1919,7 +2165,15 @@ class Game:
                 # 게임 오버 시 이름 입력 상태 활성화
                 self.input_active = True
                 break
-                
+
+        # 보스가 바닥에 닿으면 게임 오버
+        if self.boss and self.boss.active:
+            if self.boss.y + self.boss.height >= SCREEN_HEIGHT - BOTTOM_UI_HEIGHT:
+                self.game_over = True
+                if self.score > self.high_score:
+                    self.high_score = self.score
+                self.input_active = True
+
         # 슈퍼볼 아이템 바닥 충돌 코드 삭제
 
         # 게임 오버 사운드 (최초 1회)
@@ -1939,7 +2193,11 @@ class Game:
         
         # 파티클 시스템 업데이트 (메모리 누수 방지)
         self.update_particles()
-        
+
+        # 보스 업데이트
+        if self.boss and self.boss.active:
+            self.boss.update()
+
         # 게임 모드별 업데이트
         self.mode_manager.update(self)
         
@@ -1978,17 +2236,26 @@ class Game:
         for block in self.blocks:
             if block.active:
                 block.move_down()
-                
+
         # 기존 보너스 볼들도 아래로 이동
         for bonus in self.bonus_balls:
             if bonus.active:
                 bonus.move_down()
-                
-        # 새로운 블록 생성
-        self.generate_blocks()
-        
+
+        # 보스도 아래로 이동
+        if self.boss and self.boss.active:
+            self.boss.move_down()
+
         # 라운드 증가
         self.round_num += 1
+
+        # 보스 라운드 체크 후 블록/보스 생성
+        if self.round_num % 5 == 0:
+            self.spawn_boss()
+        else:
+            self.generate_blocks()
+            self.is_boss_round = False
+            self.boss = None
         
         # 업적: 100라운드 달성
         self.achievement_manager.check_achievement('centurion', self.round_num)
@@ -2271,7 +2538,8 @@ class Game:
         # 게임 오버가 아니고 라운드가 진행 중이 아닐 때만 조준선 표시
         if not self.game_over and not self.round_in_progress:
             theme_colors = self.theme_manager.get_theme_colors(self.current_theme)
-            traj_color = theme_colors['ball_color']
+            traj_color = theme_colors['trajectory_color']
+            hit_color = theme_colors['hit_color']
             launch_y = SCREEN_HEIGHT - BOTTOM_UI_HEIGHT - BALL_RADIUS - 2
             current_time = pygame.time.get_ticks()
 
@@ -2313,7 +2581,7 @@ class Game:
                     pygame.draw.line(marker_surf, mc, (half, half - 4), (half, half + 4), 2)
                     self.screen.blit(marker_surf, (px - half, py - half))
 
-                # 첫 번째 블록 충돌 지점 강조 표시
+                # 첫 번째 블록 충돌 지점 강조 표시 (테마 색상 적용)
                 if hit_point:
                     hx, hy = int(hit_point[0]), int(hit_point[1])
                     pulse = abs(math.sin(current_time / 250)) * 3
@@ -2323,23 +2591,23 @@ class Game:
                     for gi in range(3, 0, -1):
                         g = (hit_r + gi * 5) * 2 + 4
                         gs = pygame.Surface((g, g), pygame.SRCALPHA)
-                        pygame.draw.circle(gs, (*NEON_PINK, 45 // gi), (g // 2, g // 2), hit_r + gi * 5)
+                        pygame.draw.circle(gs, (*hit_color[:3], 45 // gi), (g // 2, g // 2), hit_r + gi * 5)
                         self.screen.blit(gs, (hx - g // 2, hy - g // 2))
 
                     # 메인 원
                     hr = hit_r + 3
                     hs = pygame.Surface((hr * 2, hr * 2), pygame.SRCALPHA)
-                    pygame.draw.circle(hs, (*NEON_PINK, 190), (hr, hr), hit_r)
+                    pygame.draw.circle(hs, (*hit_color[:3], 190), (hr, hr), hit_r)
                     pygame.draw.circle(hs, (255, 255, 255, 230), (hr, hr), hit_r, 2)
                     self.screen.blit(hs, (hx - hr, hy - hr))
 
                     # 십자 조준선
                     cross = hit_r + 6
                     cl = pygame.Surface((cross * 2 + 1, 3), pygame.SRCALPHA)
-                    pygame.draw.line(cl, (*NEON_PINK, 200), (0, 1), (cross * 2, 1), 1)
+                    pygame.draw.line(cl, (*hit_color[:3], 200), (0, 1), (cross * 2, 1), 1)
                     self.screen.blit(cl, (hx - cross, hy - 1))
                     cv = pygame.Surface((3, cross * 2 + 1), pygame.SRCALPHA)
-                    pygame.draw.line(cv, (*NEON_PINK, 200), (1, 0), (1, cross * 2), 1)
+                    pygame.draw.line(cv, (*hit_color[:3], 200), (1, 0), (1, cross * 2), 1)
                     self.screen.blit(cv, (hx - 1, hy - cross))
 
             # ── 발사점 (펄스 효과) ─────────────────────────────────────
@@ -2662,14 +2930,94 @@ class Game:
             self.screen.blit(key_surf, key_rect)
             self.screen.blit(desc_surf, desc_rect)
         
+    def draw_boss_ui(self):
+        """보스 전용 체력바 UI (화면 상단)"""
+        if not self.boss or not self.boss.active:
+            return
+
+        theme_colors = self.theme_manager.get_theme_colors(self.current_theme)
+
+        bar_width = SCREEN_WIDTH - 40
+        bar_height = 14
+        bar_x = 20
+        bar_y = TOP_UI_HEIGHT + 8
+
+        ratio = self.boss.health / self.boss.max_health
+
+        # 배경
+        pygame.draw.rect(self.screen, (40, 40, 40), (bar_x - 2, bar_y - 2, bar_width + 4, bar_height + 4), border_radius=8)
+
+        # 체력 바
+        if ratio > 0.6:
+            hp_color = (50, 220, 50)
+        elif ratio > 0.3:
+            hp_color = (220, 180, 0)
+        else:
+            hp_color = (220, 50, 50)
+
+        fill_width = int(bar_width * ratio)
+        if fill_width > 0:
+            pygame.draw.rect(self.screen, hp_color, (bar_x, bar_y, fill_width, bar_height), border_radius=7)
+
+        # 테두리
+        pygame.draw.rect(self.screen, (200, 200, 200), (bar_x, bar_y, bar_width, bar_height), 2, border_radius=7)
+
+        # BOSS 라벨 및 HP 텍스트
+        try:
+            font = pygame.font.Font(None, 20)
+            boss_names = {0: "MOVER BOSS", 1: "SHIELDER BOSS", 2: "SPEEDER BOSS"}
+            name = boss_names.get(self.boss.boss_type, "BOSS")
+            label = font.render(f"★ {name}  {self.boss.health}/{self.boss.max_health}", True, (255, 220, 100))
+            label_rect = label.get_rect(center=(SCREEN_WIDTH // 2, bar_y - 10))
+            self.screen.blit(label, label_rect)
+        except Exception:
+            pass
+
+        # 보스 등장 알림 (애니메이션)
+        current_time = pygame.time.get_ticks()
+        if current_time - self.boss_announce_timer < BOSS_ANNOUNCE_DURATION:
+            elapsed = current_time - self.boss_announce_timer
+            alpha = int(255 * (1 - elapsed / BOSS_ANNOUNCE_DURATION))
+            scale = 1.0 + 0.3 * (1 - elapsed / BOSS_ANNOUNCE_DURATION)
+
+            try:
+                font_size = int(36 * scale)
+                announce_font = pygame.font.Font(None, font_size)
+
+                boss_names = {0: "MOVER BOSS", 1: "SHIELDER BOSS", 2: "SPEEDER BOSS"}
+                name = boss_names.get(self.boss.boss_type, "BOSS")
+                text = announce_font.render(f"⚠ BOSS ROUND! ⚠", True, (255, 50, 50))
+                text2 = announce_font.render(name, True, (255, 200, 0))
+
+                overlay = pygame.Surface((SCREEN_WIDTH, 80), pygame.SRCALPHA)
+                overlay.fill((0, 0, 0, min(180, alpha)))
+                self.screen.blit(overlay, (0, SCREEN_HEIGHT // 2 - 50))
+
+                t1_rect = text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 25))
+                t2_rect = text2.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 10))
+
+                text.set_alpha(alpha)
+                text2.set_alpha(alpha)
+                self.screen.blit(text, t1_rect)
+                self.screen.blit(text2, t2_rect)
+            except Exception:
+                pass
+
     def draw_game(self):
         # UI 그리기
         self.draw_ui()
-        
+
+        # 보스 UI 그리기
+        self.draw_boss_ui()
+
         # 블록 그리기
         for block in self.blocks:
             block.draw(self.screen)
-            
+
+        # 보스 그리기
+        if self.boss and self.boss.active:
+            self.boss.draw(self.screen)
+
         # 보너스 볼 그리기
         for bonus in self.bonus_balls:
             bonus.draw(self.screen)
