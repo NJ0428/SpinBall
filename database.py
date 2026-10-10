@@ -36,15 +36,38 @@ class DatabaseManager:
                 
                 # 인덱스 생성 (성능 향상)
                 cursor.execute('''
-                    CREATE INDEX IF NOT EXISTS idx_score 
+                    CREATE INDEX IF NOT EXISTS idx_score
                     ON scores(score DESC)
                 ''')
-                
+
                 cursor.execute('''
-                    CREATE INDEX IF NOT EXISTS idx_date 
+                    CREATE INDEX IF NOT EXISTS idx_date
                     ON scores(play_date DESC)
                 ''')
-                
+
+                # 일일 챌린지 점수 테이블
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS daily_challenge_scores (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        player_name TEXT NOT NULL,
+                        score INTEGER NOT NULL,
+                        round_reached INTEGER NOT NULL,
+                        balls_count INTEGER NOT NULL,
+                        challenge_date TEXT NOT NULL,
+                        play_datetime TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+
+                cursor.execute('''
+                    CREATE INDEX IF NOT EXISTS idx_daily_date
+                    ON daily_challenge_scores(challenge_date DESC)
+                ''')
+
+                cursor.execute('''
+                    CREATE INDEX IF NOT EXISTS idx_daily_score
+                    ON daily_challenge_scores(challenge_date, score DESC)
+                ''')
+
                 conn.commit()
                 print("데이터베이스가 성공적으로 초기화되었습니다.")
                 
@@ -112,6 +135,59 @@ class DatabaseManager:
             print(f"플레이어 점수 조회 오류: {e}")
             return None
     
+    def save_daily_score(self, player_name: str, score: int, round_reached: int,
+                         balls_count: int, challenge_date: str) -> bool:
+        """일일 챌린지 점수 저장"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO daily_challenge_scores
+                        (player_name, score, round_reached, balls_count, challenge_date)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (player_name, score, round_reached, balls_count, challenge_date))
+                conn.commit()
+                return True
+        except sqlite3.Error as e:
+            print(f"일일 챌린지 점수 저장 오류: {e}")
+            return False
+
+    def get_daily_scores(self, challenge_date: str, limit: int = 10) -> List[Tuple]:
+        """특정 날짜 일일 챌린지 상위 점수 조회 (플레이어당 최고점)"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT player_name,
+                           MAX(score) AS best_score,
+                           round_reached,
+                           datetime(MAX(play_datetime), 'localtime') AS formatted_date
+                    FROM daily_challenge_scores
+                    WHERE challenge_date = ?
+                    GROUP BY player_name
+                    ORDER BY best_score DESC, round_reached DESC
+                    LIMIT ?
+                ''', (challenge_date, limit))
+                return cursor.fetchall()
+        except sqlite3.Error as e:
+            print(f"일일 챌린지 점수 조회 오류: {e}")
+            return []
+
+    def get_daily_participant_count(self, challenge_date: str) -> int:
+        """특정 날짜 참가자 수"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT COUNT(DISTINCT player_name)
+                    FROM daily_challenge_scores
+                    WHERE challenge_date = ?
+                ''', (challenge_date,))
+                result = cursor.fetchone()
+                return result[0] if result else 0
+        except sqlite3.Error as e:
+            return 0
+
     def get_total_games_played(self) -> int:
         """총 게임 플레이 횟수 조회"""
         try:
